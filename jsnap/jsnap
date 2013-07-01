@@ -1,0 +1,339 @@
+#!/bin/bash
+#*
+#* Author         : Jeremy Schulman
+#* Program        : jsnap
+#* Platform       : UNIX
+#* Description    : 
+#*
+#*    This file is the toplevel UNIX script that is used to
+#*    drive the Junos Snapshot automation application.  There are
+#*    two functions supported by this script: (1) capture
+#*    a snapshot from a Junos device and (2) compare two
+#*    snapshot data-sets.  Refer to the show_help() function
+#*    below for more details.
+#*
+#* Copyright (c) 2012  Juniper Networks. All Rights Reserved.
+#*
+#* YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE, 
+#* IN ADDITION TO ANY OTHER LICENSES AND TERMS REQUIRED BY JUNIPER NETWORKS.
+#* 
+#* JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+#* ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+#* DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+#* CAREFULLY.
+#*
+#* THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+#* WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+#* IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+#* OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+#* PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+#* ALLOWED BY APPLICABLE LAW.
+#*
+#* IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES, 
+#* INCLUDING BUT NOT LIMITED TO LOST REVENUE, PROFIT OR DATA, OR
+#* FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+#* HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+#* USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+#* THE POSSIBILITY OF SUCH DAMAGES.
+#*
+
+JUISE_EXE=$(which juise)
+
+if [ -z "$JUISE_EXE" ]; then
+   echo "ERROR: could not find 'juise' in your PATH"
+   exit 1
+fi
+
+JAWA_VER="1.0"
+JAWA_DATE="2012-SEP-10"
+
+JAWA_NAME=$(basename $0)
+
+# $JDB is for debugging, so if you want to enable juise debugggine; set JDB in your environment "set JDB=-d"
+JUISE="$JUISE_EXE $JDB"
+
+# JAWADIR = top directory that has JAWA distribution (./lib, ./bin, etc )
+JAWADIR=$(cd $(dirname `which ${JAWA_NAME}`); cd ..; pwd)
+
+JPPC_DIR=$JAWADIR/jsnap
+JPPC_SNAP=$JPPC_DIR/jppc-snap.slax
+JPPC_EXEC=$JPPC_DIR/jppc-exec.slax
+
+GETOPT_ARGS=`getopt -u -o l:t:s:p: -l check:,login:,snapcheck:,section:,snap:,target:,passwd:,version -qn $JAWA_NAME -- $@`
+
+function show_help()
+{
+	echo ""
+	echo " ${JAWA_NAME}: snapshot data collection and validation"
+	echo ""
+	echo "   ${JAWA_NAME} --snap <name> [lts] <conf-file>"
+	echo "      Snapshot data and save as collection 'name'"
+	echo ""
+	echo "   ${JAWA_NAME} --check <name1>,<name2> [ts] <conf-file>"
+	echo "      Check results of two snapshot collections 'name1' and 'name2'"
+	echo ""
+	echo "   ${JAWA_NAME} --snapcheck <name> [lts] <conf-file>"
+	echo "      Take a single snapshot as collection 'name' and checks results"
+	echo "      NOTE: does not compare two collections"
+	echo ""
+	echo "   OPTIONS: "
+	echo "       -l | --login <login> "
+	echo "       -p | --passwd <passwd> "
+	echo "       -t | --target <target> "
+	echo "       -s | --section <section-name>"	
+	echo "       --version"
+	echo ""
+	exit 0
+}
+
+ARG_login=$USER
+ARG_passwd=""
+ARG_target=""
+ARG_targetfile=""
+ARG_conffile=""
+ARG_section=""
+ARG_snapN1=""
+ARG_snapN2=""
+
+comp_files=""
+do_cmd=""
+
+function show_version()
+{
+   echo ""
+   echo "${JAWA_NAME}: ver: ${JAWA_VER}, ${JAWA_DATE}"
+   echo ""
+   for file in $(cat $JPPC_DIR/MANIFEST.txt); do
+      check=$(sha1sum $JAWADIR/$file)
+      hash=$(echo $check | cut -f1 -d" ")
+      echo "$hash: $file"
+   done
+   exit;
+}
+
+set -- $GETOPT_ARGS
+while [ $# -gt 0 ]
+do	
+	case $1 in
+
+	-l|--login)
+		ARG_login=$2
+		if [ ${ARG_login:0:1} = '-' ]; then
+		   echo "Login option missing login-name";
+		   exit 1;
+		fi
+		shift
+		;;
+	
+        -p|--passwd)
+		ARG_passwd=$2
+		if [ ${ARG_passwd:0:1} = '-' ]; then
+		   echo "Password option missing password-name";
+		   exit 1;
+		fi
+		shift
+		;;
+
+	-t|--target)
+		ARG_target=$2
+		if [ ${ARG_target:0:1} = '-' ]; then
+		   echo "Target option missing target-name";
+		   exit 1;
+		fi		
+		shift
+		;;
+		
+	-s)
+		ARG_section=$2
+		if [ ${ARG_section:0:1} = '-' ]; then
+		   echo "Section option missing section-name";
+		   exit 1;
+		fi				
+		shift
+		;;
+
+	--check)
+		comp_files=$2
+		do_cmd="check"
+		shift; 
+		;;
+		
+	--snapcheck)
+	   ARG_snapN1=$2;
+		if [ ${ARG_snapN1:0:1} = '-' ]; then
+		   echo "Snapshot name option missing";
+		   exit 1;
+		fi			   
+	   ARG_snapN2=$ARG_snapN1;
+	   do_cmd="snapcheck"
+	   shift
+	   ;;
+	   
+	--snap)
+		ARG_snapN1=$2
+		if [ ${ARG_snapN1:0:1} = '-' ]; then
+		   echo "Snapshot name option missing";
+		   exit 1;
+		fi			
+		do_cmd="snap"
+		shift
+		;;
+				
+	--help)
+		show_help;
+		;;		
+		
+	--version)
+	   show_version;
+	   ;;
+
+	--)
+		ARG_conffile=$2
+		break
+		;;
+	-*) echo "$0: error - unrecognized option $1" 1>&2; exit 1;;
+	*)
+		break
+		;;
+	esac
+	shift
+done
+
+
+
+function dumpvars()
+{
+	echo "login[" $ARG_login "]"
+	echo "passwd[" $ARG_passwd "]"
+	echo "target[" $ARG_target "]"
+	echo "section[" $ARG_section "]"
+	echo "conffile[" $ARG_conffile "]"
+	echo "snapN1[" $ARG_snapN1 "]"
+	echo "snapN2[" $ARG_snapN2 "]"	
+}
+
+function must_login()
+{
+	if [ -z $ARG_login ]; then
+		echo "You must specify the '-l <login>' option"
+		exit
+	fi
+}
+
+function must_target()
+{
+	if [ -n "$ARG_target" ]; then
+	   ARG_TARGETS="TARGET $ARG_target"
+	fi
+	
+	if [ -z "$ARG_TARGETS" ]; then
+	   echo "You must specify the '-t <target>' option"
+	   exit 1
+	fi
+}
+
+function must_file()
+{
+	if [ -z $ARG_conffile ]; then
+		echo "Configuration file (last parameter) appears to be missing"
+		echo "Check command arguments for missing option values"
+		exit 1
+	fi
+}
+
+function must_snapfile()
+{
+   # check to see if a name was provided
+   
+   if [ -z "$1" ]; then
+	   echo "A snapshot name is missing from the command-line."
+	   exit 1
+	fi
+	
+	# check to see if there are snapshot files that exist; pre-check to the 
+	# actual code checking for specific file-names
+	
+	snapfiles=$(ls *__$1.xml 2>&1 /dev/null)
+	if [ $? != 0 ]; then
+	   echo "There are no snapfiles for name '$1'";
+	   exit 1;
+	fi
+
+}
+
+function jppc_snap()
+{
+	must_login
+	must_target
+	must_file
+
+	argv="CONF-FILE $ARG_conffile $ARG_TARGETS USER $ARG_login SNAP-NAME $ARG_snapN1"
+	
+	if [ -n "$ARG_section" ]; then
+		argv="$argv SECTION $ARG_section"
+	fi
+        
+	if [ -n "$ARG_passwd" ]; then
+		argv="$argv PASSWD $ARG_passwd"
+	fi
+	
+	$JUISE $JPPC_SNAP $argv
+}
+
+function jppc_check()
+{
+	must_target
+	must_file
+	must_snapfile $ARG_snapN1
+	must_snapfile $ARG_snapN2
+	
+	argv="CONF-FILE $ARG_conffile $ARG_TARGETS SNAP-N1 $ARG_snapN1 SNAP-N2 $ARG_snapN2"
+	argv="$argv ENV_PWD $PWD"
+	
+	if [ -n "$ARG_section" ]; then
+		argv="$argv SECTION $ARG_section"
+	fi
+	
+	if [ -n "$ARG_passwd" ]; then
+		argv="$argv PASSWD $ARG_passwd"
+	fi
+
+	$JUISE $JPPC_EXEC $argv
+}
+
+function jppc_snapcheck()
+{
+	must_target
+	must_file
+
+   jppc_snap
+   jppc_check
+}
+
+
+case $do_cmd in 
+
+snapcheck)   
+   jppc_snapcheck
+   exit
+   ;;
+
+check)
+   IFS="," read -ra SNAPS <<< "$comp_files";
+   ARG_snapN1=${SNAPS[0]}
+   ARG_snapN2=${SNAPS[1]}   
+   jppc_check
+   exit
+   ;;
+
+snap)
+   jppc_snap
+   exit
+   ;;
+
+esac
+
+# if wer're here, then we need help ...
+show_help
+
+

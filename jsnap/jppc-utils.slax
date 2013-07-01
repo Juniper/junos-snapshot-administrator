@@ -1,0 +1,224 @@
+/*
+* Author         : Jeremy Schulman
+* Program        : jppc
+* Platform       : All Junos
+* Description    : 
+*
+*    This file is part of the 'jppc' automation application
+*    that is used to "snapshot" a Junos runtime system
+*    and then compare the operational status with a set of
+*    user defined test criteria
+*
+* Copyright (c) 2012  Juniper Networks. All Rights Reserved.
+*
+* YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE, 
+* IN ADDITION TO ANY OTHER LICENSES AND TERMS REQUIRED BY JUNIPER NETWORKS.
+* 
+* JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+* ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+* DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+* CAREFULLY.
+*
+* THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+* WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+* IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+* OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+* PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+* ALLOWED BY APPLICABLE LAW.
+*
+* IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES, 
+* INCLUDING BUT NOT LIMITED TO LOST REVENUE, PROFIT OR DATA, OR
+* FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+* HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+* USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+* THE POSSIBILITY OF SUCH DAMAGES.
+*/
+
+version 1.0;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+ns dyn extension = "http://exslt.org/dynamic";
+ns set extension = "http://exslt.org/sets";
+ns func extension = "http://exslt.org/functions";
+ns exsl extension = "http://exslt.org/common";
+ns str extension = "http://exslt.org/strings";
+ns date extension = "http://exslt.org/dates-and-times";
+
+ns jppc = "http://xml.juniper.net/jppc";
+ns cbd = "http://xml.juniper.net/jawalib/libcbd";
+
+var $__jppc_qq_def = '"';
+var $__jppc_q_def = "'";
+var $__jppc_v_def = ",?[[:space:]]*(.*)?";         /* optional, but likely, variables */
+var $__jppc_rxp_qq = $__jppc_qq_def _ "(.+)" _ $__jppc_qq_def _ $__jppc_v_def;
+var $__jppc_rxp_q = $__jppc_q_def _ "(.+)" _ $__jppc_q_def _ $__jppc_v_def;
+
+<func:function name="jppc:make-err-dynpfs">
+{
+	param $cmd-ns;
+	param $check-ns;
+	param $test-ns;
+	
+	var $idvars := {
+		<v> "$ID.1";
+		<v> "$ID.2";
+		<v> "$ID.3";
+		<v> "$ID.4";
+		<v> "$ID.5";
+	}
+	
+	var $dynpf := { for-each( $test-ns/err ) {
+	<line num=position()> {
+			var $_rfmt = .;
+			
+			/* ---------------------------------------------------- */
+			/* determine the correct regex expression to parse the  */
+			/* line with; will support both quotes(") and ticks(')  */
+			/* ---------------------------------------------------- */			
+			
+			var $rxp = { 
+				if(starts-with( $_rfmt, '"' )) {	expr $__jppc_rxp_qq; }
+				else if(starts-with( $_rfmt, "'" )) { expr $__jppc_rxp_q; }
+				else {
+					expr jcs:output("ERROR: unrecognized 'err' format: ",
+						"[", $_rfmt, "] ... SKIPPING!");
+					expr false();
+				}	
+			}
+			
+			/* @@@ should check for $rxp == false() @@@ */
+			
+			/* ------------------------------------------------- */
+			/* yank the report string and the variable items out */
+			/* we need to to a bit of change-up depending on     */
+			/* what the variables are.                           */
+			/* ------------------------------------------------- */			
+			
+			var $_parts = jcs:regex( $rxp, $_rfmt );
+			
+			<pfmt> {
+			   if( position() == 1 ) { expr "\n"; }
+			   expr $_parts[2];
+			   if( position() == last() ) { expr "\n"; }
+			}
+			
+			var $_pvars_str = string( $_parts[3] );
+			var $_pvars_ns = jcs:split( ",", $_pvars_str );
+			
+			if( $_pvars_str ) {
+				<pvars> {
+					if(contains($_pvars_str, "$ID.")) { 
+						expr str:replace( $_pvars_str, $idvars/v, $test-ns/../id );
+					}
+					else { expr $_pvars_str; }
+				}
+			}
+	}}}
+	
+	<func:result select="$dynpf">;
+}
+
+<func:function name="jppc:make-iddb">
+{
+	param $ppdata-ns;
+	param $check-ns;
+	
+	/* foreach item in the listof ... */
+	
+	var $iddb := { for-each( $ppdata-ns ) { 
+		copy-of jppc:xml-to-id( ., $check-ns );
+	}}
+	
+	<func:result select="$iddb/*">;
+}
+
+<func:function name="jppc:xml-to-id">
+{
+	param $data-ns;
+	param $check-ns;
+
+	/* ----------------------------------------------------------------- */
+	/* we need to create a temporary database of the id/value pairs      */
+	/* so we can keep these values in tact as well as create a           */
+	/* unique string for uid-matching                                    */
+	/* ----------------------------------------------------------------- */
+	
+	var $_id_db_ := { 
+		if( $check-ns/id ) {
+			/* this is a 'listof' */
+			for-each( $check-ns/id ) { 
+				var $_xpath = .;
+				var $_dyn = "$data-ns/" _ $_xpath;
+				var $_val = dyn:evaluate( $_dyn );
+				<id> {
+					<idx> position();
+					<xpath> $_xpath;
+					<value> $_val;
+				}
+			}
+		}
+	}
+		
+	/* now turn this id information into a unique string */
+	
+	var $uid_str = { for-each( $_id_db_/id ) { 
+		<xsl:sort select="idx" order="descending">;
+		expr "~ID~{" _ value _ "}";
+	}}
+	
+	/* now save all this info for later use */
+	
+	var $jppc_id := { <jppc:id> {
+		<as-string> $uid_str;
+		copy-of $_id_db_;
+	}}
+		
+	<func:result select="$jppc_id/child::*">;
+}
+
+
+<func:function name="jppc:id-to-xml">
+{
+	param $data-ns;
+	param $id-ns;
+	
+	var $dyn_xpath = { for-each( $id-ns/id ) {
+		expr "[ " _ xpath _ " = '" _ value _ "' ]";
+	}}
+	
+	var $dynobj = dyn:evaluate( "$data-ns" _ $dyn_xpath );
+	
+	<func:result select="$dynobj">;
+}
+
+<func:function name="jppc:targets">
+{
+   if( $TARGET ) {
+      var $target := <target> $TARGET;
+      <func:result select="$target">;
+   }
+   else if( $TARGET-FILE ) {
+      var $content = cbd:load-text-file( $TARGET-FILE );
+      var $targets = $content[string-length(.)>0][not(starts-with(.,"#"))];
+      <func:result select="$targets">;
+   }
+   else {
+      <func:result select="false()">;
+   }
+}
+
+<func:function name="jppc:section">
+{
+   param $ini-file;
+   
+   if( $SECTION ) {
+      var $cmd-ns = dyn:evaluate( "$ini-file/" _ $SECTION );         
+      <func:result select="$cmd-ns">;
+   }
+   else {
+      <func:result select="false()">;
+   }
+}

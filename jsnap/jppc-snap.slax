@@ -1,0 +1,193 @@
+/*
+* Author         : Jeremy Schulman
+* Program        : jppc
+* Platform       : All Junos
+* Description    : 
+*
+*    This file is part of the 'jppc' automation application
+*    that is used to "snapshot" a Junos runtime system
+*    and then compare the operational status with a set of
+*    user defined test criteria
+*
+* Copyright (c) 2012  Juniper Networks. All Rights Reserved.
+*
+* YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE, 
+* IN ADDITION TO ANY OTHER LICENSES AND TERMS REQUIRED BY JUNIPER NETWORKS.
+* 
+* JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+* ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+* DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+* CAREFULLY.
+*
+* THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+* WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+* IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+* OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+* PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+* ALLOWED BY APPLICABLE LAW.
+*
+* IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES, 
+* INCLUDING BUT NOT LIMITED TO LOST REVENUE, PROFIT OR DATA, OR
+* FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+* HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+* USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+* THE POSSIBILITY OF SUCH DAMAGES.
+*/
+
+version 1.0;
+
+/* Junos standard namespaces */
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+/* EXSLT namespaces */
+ns exsl extension = "http://exslt.org/common";
+ns dyn extension = "http://exslt.org/dynamic";
+ns func extension = "http://exslt.org/functions";
+ns date extension = "http://exslt.org/dates-and-times";
+
+/* custom namespaces */
+ns jfile = "http://xml.juniper.net/jawalib/libjfile";
+ns cbd = "http://xml.juniper.net/jawalib/libcbd";
+
+ns jppc = "http://xml.juniper.net/jppc";
+
+import "../lib/libxns.slax";
+import "../lib/libjfile.slax";
+import "../lib/libcbd.slax";
+import "jppc-utils.slax";
+
+param $CONF-FILE;
+param $SNAP-NAME = "snap";
+param $TARGET;
+param $TARGET-FILE;
+param $USER;
+param $SECTION;
+param $PASSWD;
+
+var $TIME-NOW = date:date-time();
+
+var $jfile:JUNOS = false();
+
+match / {
+   
+   /* ----------------------------------- */
+   /* load the "curly-brace-doc" file now */
+   /* ----------------------------------- */   
+	
+	var $ini-file = cbd:read( $CONF-FILE );
+	if( $ini-file/cbd:error ) {
+	   for-each( $ini-file/cbd:error ) {
+	      expr jcs:output( "ERROR[", file, "]: ", message );
+	   }
+		<xsl:message terminate="yes"> "Exiting.";
+	}
+
+	/* ----------------------------------------------------------------- */
+   /* if a section was provided, make sure it's valid before proceeding */
+	/* ----------------------------------------------------------------- */   
+
+	var $section-cmd-ns = jppc:section( $ini-file );   
+	
+	if( $SECTION ) {
+		if(not( $section-cmd-ns )) {
+			expr jcs:output("ERROR: Could not find: '", $SECTION, "' in config file '", $CONF-FILE, "' !" );
+			<xsl:message terminate="yes">;
+		}
+	}
+	
+	var $targets = jppc:targets();
+	if(not( $targets )) {
+	   expr jcs:output("ERROR: no TARGET or TARGET-FILE defined !");
+	   <xsl:message terminate="yes">;
+	}
+	
+	/* --------------------------------------- */
+	/* create a connection to the Junos device */
+	/* --------------------------------------- */	
+	
+   var $passwd = {
+       call get_passwd($PASSWD);
+   }
+        
+   if(not($USER) || not($passwd)) {
+      <xsl:message terminate="yes"> "You must specify 'USER' and 'password'";
+   }
+		
+   for-each( $targets ) { var $target = string(.);
+      call do_snapshot( $ini-file, $target, $passwd, $section-cmd-ns );
+   }
+}
+
+template do_snapshot( $ini-file, $target, $passwd, $section-cmd-ns )
+{
+   expr jcs:output("Connecting to ", $USER, "@", $target, " ... ");
+	var $jnx = jcs:open( $target, $USER, $passwd );
+	if(not( $jnx )) {
+	   expr jcs:output("Unable to connect to device: ", $target, " ... SKIPPING! ");
+	}
+	else {
+	   expr jcs:output("CONNECTED.");
+	   
+	   /* -------------------------------------------------------- */
+	   /* execute the section; collecting the data from the device */
+	   /* -------------------------------------------------------- */	
+	   
+	   if( $section-cmd-ns ) {
+	      call do_junos_cmd( $jnx, $target, $cmd-ns = $section-cmd-ns );
+	   }	
+	   else {
+	      for-each( $ini-file/do/child::* ) {
+	         var $child = name(.);
+	         var $cmd-ns = dyn:evaluate( "$ini-file/" _ $child );
+	         if(not( $cmd-ns )) {
+	            expr jcs:output("ERROR: [" _ $CONF-FILE _ "]: Could not find: ", $child, " ... SKIPPING!" );
+	         }
+	         else {
+	            call do_junos_cmd( $jnx, $target, $cmd-ns );
+	         }
+	      }
+	   }
+	   
+	   /* ---------------------------------- */
+	   /* close the connection to the device */
+	   /* ---------------------------------- */
+	   
+	   expr jcs:close( $jnx );	
+	}
+}
+
+template do_junos_cmd( $jnx, $target, $cmd-ns )
+{
+	var $cmd-name = name( $cmd-ns );
+	var $filename = concat( $target, "__", $cmd-name,"__", $SNAP-NAME, ".xml" );
+	
+	expr jcs:output( "EXEC: '", $cmd-ns/command, "' ... ");
+	
+	var $rpc-cmd = <command> $cmd-ns/command;
+	var $rpc-rsp = jcs:execute-xns( $jnx, $rpc-cmd );
+	
+	if( $rpc-rsp/xnm:error ) {
+		expr jcs:output("ERROR: [invalid Junos command]: '", $cmd-ns/command, "'" );
+	}
+	else {
+		expr jcs:output( "SAVE: '", $filename, "' ... ");
+		<exsl:document href=$filename indent="yes"> {
+			<jppc:section name=$cmd-name mode=$SNAP-NAME conf=$CONF-FILE target=$target ts=$TIME-NOW> {
+				copy-of $rpc-rsp/*;   /**/
+			}
+		}
+	}
+}
+
+template get_passwd($PASSWD)
+{
+   if ($PASSWD) {
+       expr $PASSWD;
+   }
+   else {
+       var $passwd = jcs:get-secret( $USER _ " password: ");
+       expr $passwd;
+   }
+}

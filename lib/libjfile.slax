@@ -1,0 +1,136 @@
+/*
+* Author         : Jeremy Schulman
+* Library        : libjfile
+* Platform       : All Junos / JUISE
+* Description    : 
+*
+*    This file "abstracts" the file read process between a
+*    JUNOS device and a JUISE/server environment.  
+*
+*    If the code is running on a JUNOS device, then the 
+*    *importing* code must define the variable:
+*
+*       var $jfile:JUNOS = true()
+*
+*    If the code is running on a JUISE device, then the
+*    *importing* code must define the varialbe:
+*
+*       var $jfile:JUNOS = false()
+*
+* Copyright (c) 2012  Juniper Networks. All Rights Reserved.
+*
+* YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE, 
+* IN ADDITION TO ANY OTHER LICENSES AND TERMS REQUIRED BY JUNIPER NETWORKS.
+* 
+* JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+* ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+* DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+* CAREFULLY.
+*
+* THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+* WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+* IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+* OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+* PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+* ALLOWED BY APPLICABLE LAW.
+*
+* IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES, 
+* INCLUDING BUT NOT LIMITED TO LOST REVENUE, PROFIT OR DATA, OR
+* FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+* HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+* USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+* THE POSSIBILITY OF SUCH DAMAGES.
+*/
+
+version 1.0;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+ns func extension = "http://exslt.org/functions";
+
+ns jfile = "http://xml.juniper.net/jawalib/libjfile";
+
+<func:function name="jfile:read">
+{
+   param $filename;
+   param $path-ns;
+   param $format;
+   param $to-nodeset = true();
+   
+   if( $format == "xml" ) {
+      var $ns = document( $filename );
+      <func:result select="$ns">;
+   }
+   else {
+      if( $jfile:JUNOS ) {
+         var $content = jfile:JUNOS-read( $filename, $path-ns[1], $to-nodeset );
+         <func:result select="$content">;
+      }
+      else {
+         var $content = jfile:JUISE-read( $filename, $path-ns[1], $to-nodeset );
+         <func:result select="$content">;
+      }
+   }
+}
+
+/* ----------------------------------------- */         
+/* On a JUISE-BOX, so use the SLAX extension */
+/* ----------------------------------------- */
+
+<func:function name="jfile:JUISE-read">
+{
+   param $filename;
+   param $path;
+   param $to-ns;
+
+   var $full_fname = {
+      if( $path && not( starts-with( $filename, "/" ))) {
+         expr $path _ "/" _ $filename;
+      } else {
+         expr $filename;
+      }
+   }
+   
+   var $content = slax:document( $full_fname );
+   if( $content ) {
+      if( $to-ns ) {
+         var $ns = jcs:break-lines( $content );
+         <func:result select="$ns">;
+      }
+      else { <func:result select="$content">; }
+   }
+   else {
+      var $next_path = $path/following-sibling::*[1];
+      if( string-length( $next_path )) {
+         var $again = jfile:JUISE-read( $filename, $next_path, $to-ns );
+         <func:result select="$again">;
+      }
+      else {
+         <func:result select="false()">; 
+      }
+   }
+}
+
+/* --------------------------------- */         
+/* on a Junos device, so use the RPC */
+/* --------------------------------- */
+/* @@@ need to handle PATHs @@@ */
+<func:function name="jfile:JUNOS-read">
+{
+   var $get-cmd = <file-get> { <encoding> "ascii"; <filename> $filename; }
+   var $contents = jcs:execute( '', $get-cmd )/file-contents;
+   if( $contents ) {
+      if( $to-nodeset ) {
+         var $ns = jcs:break-lines( $contents );
+         <func:result select="$ns">;
+      }
+      else {
+         <func:result select="string($contents)">;
+      }
+   }
+   else { <func:result select="false()">; }
+}
+
+

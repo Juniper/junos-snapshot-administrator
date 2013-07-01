@@ -1,0 +1,764 @@
+/*
+* Author         : Jeremy Schulman
+* Program        : jppg
+* Platform       : All Junos
+* Description    : 
+*
+*    This file is part of the 'jppc' automation application
+*    that is used to "snapshot" a Junos runtime system
+*    and then compare the operational status with a set of
+*    user defined test criteria
+*
+* Copyright (c) 2012  Juniper Networks. All Rights Reserved.
+*
+* YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE, 
+* IN ADDITION TO ANY OTHER LICENSES AND TERMS REQUIRED BY JUNIPER NETWORKS.
+* 
+* JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+* ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+* DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+* CAREFULLY.
+*
+* THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+* WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+* IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+* OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+* PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+* ALLOWED BY APPLICABLE LAW.
+*
+* IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES, 
+* INCLUDING BUT NOT LIMITED TO LOST REVENUE, PROFIT OR DATA, OR
+* FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+* HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+* USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+* THE POSSIBILITY OF SUCH DAMAGES.
+*/
+
+version 1.0;
+
+/* Junos namespaces */
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+/* EXSLT libraries */
+ns dyn extension = "http://exslt.org/dynamic";
+ns set extension = "http://exslt.org/sets";
+ns func extension = "http://exslt.org/functions";
+ns exsl extension = "http://exslt.org/common";
+ns str extension = "http://exslt.org/strings";
+ns math extension = "http://exslt.org/math";
+
+/* app namespace */
+ns cbd = "http://xml.juniper.net/jawalib/libcbd";
+ns jppc = "http://xml.juniper.net/jppc";
+
+/* ------------------------------------------------ */
+/* JPPC TEST OPERATOR CATALOG                       */
+/* ------------------------------------------------ */
+/* the @diff indicates that the test operator will  */
+/* compare the difference between two collections   */
+/* ------------------------------------------------ */
+
+var $JPPC-TEST-OPERATORS := {
+	<list-not-less diff="">;      /* no-args */
+	<list-not-more diff="">;      /* no-args */
+	<no-diff diff="">;     	      /* <xpath> */														/* .count = true */
+	<all-same>;			            /* <xpath>,[xpath-refernce-item] */
+	<is-equal>;			            /* <xpath>,"<str-value>"|<num-value> */      			/* .count = <num-value> */
+	<not-equal>;		            /* <xpath>,"<str-value>"|<num-value> */ 					/* .count = <num-value> */
+	<is-lt>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
+	<is-gt>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
+	<is-in>;				            /* <xpath>,"<str-item1>","<str-item2>",... */
+	<not-in>;			            /* <xpath>,"<str-item1>","<str-item2>",... */
+	<in-range>;			            /* <xpath>,<min-num>,<max-num> */
+	<not-range>;		            /* <xpath>,<min-num>,<max-num> */
+	<delta diff="">;				   /* <xpath>, [+|-]<value>[%] */
+	<exists>;			            /* <xpath> */
+	<not-exists>;		            /* <xpath> */
+	<contains>;			            /* <xpath>,"<str-value>" */
+}
+
+var $JPPC-TEST-NAMES = dyn:map($JPPC-TEST-OPERATORS/child::*,'name(.)');
+var $JPPC-TEST-FAIL := <jppc:test-fail>;
+var $JPPC-TEST-PASS = false();					/* a test function returning false() indicates no errors */
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		all-same		                              */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_all-same">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $tstopts = $test-ns/@cbd:argv;
+	
+	var $args = jcs:split( ",", $tstopts );
+	
+	var $item_xpath = cbd:xpath-tail( $args[1] );
+	
+	/* ------------------------------------------------------- */
+	/* obtain our reference value for comparison with others   */
+	/* in the list.  If the INI file contains an item          */
+	/* refence (2nd/optional parameter) then use it.           */
+	/* otherwise, just use the first item in the node-set      */
+	/* ------------------------------------------------------- */
+	
+	var $first_xpath = "[1]";
+	var $optref_xpath = cbd:xpath-tail( $args[2] );
+	var $ref_xpath = jcs:first-of( $optref_xpath, $first_xpath ) _ $item_xpath;
+	var $ref_val = "'" _ dyn:evaluate( "$post-ns" _ $ref_xpath ) _ "'";
+	
+	var $dynexp = "$post-ns[boolean(" _ $args[1] _ " = " _ $ref_val _ ") = false()]";
+	var $fails = dyn:evaluate( $dynexp );
+	
+	<func:result select="$fails">;
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		no-diff 		                              */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_no-diff">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+
+	if( $test-ns/count ) {
+		/* ------------------------------------------- */
+		/* checking to see if the count of the         */
+		/* element(s) has changed ... this really is   */
+		/* only used with $check-ns/listof             */
+		/* ------------------------------------------- */
+		
+		if( count( $pre-ns ) != count( $post-ns )) {
+			<func:result select="$JPPC-TEST-FAIL">;
+		}
+		else {
+			<func:result select="$JPPC-TEST-PASS">;
+		}
+	}
+	else {
+		/* ----------------------------------------- */
+		/* checking to see if an element has changed */
+		/* ----------------------------------------- */		
+		
+		var $xpath = cbd:xpath-tail( $test-ns/@cbd:argv );
+		
+		var $boolexp = "boolean($pre_ns" _ $xpath _ " = $post_ns" _ $xpath _ ")";
+		
+		var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];	
+		var $diffs := { for-each( $common_iddb ) { var $_id = .;
+			
+			/* ------------------------------------------------- */
+			/* use the "id" to retrieve the PRE and POST copies  */
+			/* of the element data/node-set                      */
+			/* ------------------------------------------------- */
+			
+			var $pre_ns = jppc:id-to-xml( $pre-ns, $_id );
+			var $post_ns = jppc:id-to-xml( $post-ns, $_id );
+			
+			/* ----------------------------------------------- */			
+			/* make a copy of the node-set that fails the test */
+			/* ----------------------------------------------- */
+			
+			if( dyn:evaluate($boolexp) == false() ) {
+				copy-of $_id;
+			}
+		}}
+		
+		<func:result select="$diffs/child::*">;
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		list-not-less                             */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_list-not-less">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	/* -------------------------------------------------- */
+	/* compare the as-string 'id' values to see if        */
+	/* anyting is missing. using the 'set' functions      */
+	/* from EXSLT are super handy                         */
+	/* -------------------------------------------------- */	
+	
+	var $x_db = $pre-iddb[ as-string == $post-iddb/as-string ];
+	var $gone_db = set:difference( $pre-iddb, $x_db );
+	
+	/* return the node-set elements, not the toplevel container */
+	<func:result select="$gone_db">;
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		list-not-more                             */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_list-not-more">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	/* -------------------------------------------------- */
+	/* compare the as-string 'id' values to see if        */
+	/* anyting is missing. using the 'set' functions      */
+	/* from EXSLT are super handy                         */
+	/* -------------------------------------------------- */	
+	
+	var $x_db = $post-iddb[ as-string == $pre-iddb/as-string ];
+	var $more_db = set:difference( $post-iddb, $x_db );
+	
+	/* return the node-set elements, not the toplevel container */
+	<func:result select="$more_db">;
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		is-equal                                  */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-equal">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $tstargv = $test-ns/@cbd:argv;
+	
+	if( $test-ns/count ) {
+		if( count( $post-ns ) == $test-ns/count ) {
+			<func:result select="$JPPC-TEST-PASS">;
+		}
+		else {
+			<func:result select="$JPPC-TEST-FAIL">;
+		}
+	}
+	else {
+		var $args = jcs:split( ",", $tstargv );
+		var $dynexp = "$post-ns[boolean(" _ $args[1] _ " = " _ $args[2] _ ") = false()]";
+		var $fails = dyn:evaluate( $dynexp );
+		<func:result select="$fails">;
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		not-equal                                 */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_not-equal">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $tstopts = $test-ns/@cbd:argv;
+	
+	if( $test-ns/count ) {
+		if( count( $post-ns ) != $test-ns/count ) {
+			<func:result select="$JPPC-TEST-PASS">;
+		}
+		else { 
+			<func:result select="$JPPC-TEST-FAIL">; 
+		}
+	}
+	else {
+		var $args = jcs:split( ",", $tstopts );
+		var $dynexp = "$post-ns[boolean(" _ $args[1] _ " = " _ $args[2] _ ")]";
+		var $fails = dyn:evaluate( $dynexp );
+		<func:result select="$fails">;
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		   is-gt                                  */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-gt">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $tstopts = $test-ns/@cbd:argv;
+	
+	if( $test-ns/count ) {
+		if( count( $post-ns ) > $test-ns/count ) {
+			<func:result select="$JPPC-TEST-PASS">;
+		}
+		else { 
+			<func:result select="$JPPC-TEST-FAIL">; 
+		}
+	}
+	else {
+		var $args = jcs:split( ",", $tstopts );
+		var $dynexp = "$post-ns[boolean(" _ $args[1] _ " > " _ $args[2] _ ") = false()]";
+		var $fails = dyn:evaluate( $dynexp );
+		<func:result select="$fails">;
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		  is-lt                                   */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-lt">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $testops = $test-ns/@cbd:argv;
+	
+	if( $test-ns/count ) {
+		if( count( $post-ns ) < $test-ns/count ) {
+			<func:result select="$JPPC-TEST-PASS">;
+		}
+		else {
+			<func:result select="$JPPC-TEST-FAIL">;
+		}
+	}
+	else {
+		var $args = jcs:split( ",", $testops );
+		var $dynexp = "$post-ns[boolean(" _ $args[1] _ " < " _ $args[2] _ ") = false()]";
+		var $fails = dyn:evaluate( $dynexp );	
+		<func:result select="$fails">;
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		contains                                  */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_contains">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $args = jcs:split( ",", $test-ns/@cbd:argv );
+	
+	var $dynexp = {
+		expr "$post-ns[boolean(";
+		expr "   contains(" _ $args[1] _ "," _ $args[2] _ ")";
+		expr ") = false()]";
+	}
+	
+	var $fails = dyn:evaluate( $dynexp );
+	
+	<func:result select="$fails">;
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		 is-in                                 	*/
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-in">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $args = jcs:split(',', $test-ns/@cbd:argv );
+	var $item = $args[1];
+	
+	var $inlist1 = { for-each( $args[position()>1] ) { var $_in_val = .;
+		expr " or (" _ $item _ " = " _ normalize-space($_in_val) _ ")";
+	}}
+	var $inlist = substring-after( $inlist1, " or " ); 
+	
+	var $dynexp = "$post-ns[boolean(" _ $inlist _ ") = false()]";
+	var $fails = dyn:evaluate( $dynexp );
+
+	<func:result select="$fails">;
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		 not-in                                   */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_not-in">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+
+	var $args = jcs:split(',', $test-ns/@cbd:argv );
+	var $item = $args[1];
+	
+	var $inlist1 = { for-each( $args[position()>1] ) { var $_in_val = .;
+		expr " or (" _ $item _ " = " _ normalize-space($_in_val) _ ")";
+	}}
+	var $inlist = substring-after( $inlist1, " or " ); 
+	
+	var $dynexp = "$post-ns[boolean(" _ $inlist _ ")]";
+	var $fails = dyn:evaluate( $dynexp );	
+	
+	<func:result select="$fails">;	
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           	 in-range                                    */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_in-range">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $args = jcs:split(',', $test-ns/@cbd:argv );
+	var $item = $args[1];
+	var $min_val = $args[2];
+	var $max_val = $args[3];
+	
+	var $dynexp = {
+	   expr "$post-ns[boolean(";
+	   expr "((" _ $item _ " >= " _ $min_val _ ") and";
+	   expr "(" _ $item _ " <= " _ $max_val _ "))";
+	   expr ") = false()]";
+	}
+	
+	var $fails = dyn:evaluate( $dynexp );	
+	
+	<func:result select="$fails">;	
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		not-range                                 */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_not-range">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $args = jcs:split(',', $test-ns/@cbd:argv );
+	var $item = $args[1];
+	var $min_val = $args[2];
+	var $max_val = $args[3];
+	
+	var $dynexp = {
+	   expr "$post-ns[boolean(";
+	   expr "((" _ $item _ " >= " _ $min_val _ ") and";
+	   expr "(" _ $item _ " <= " _ $max_val _ "))";
+	   expr ")]";
+	}
+	
+	var $fails = dyn:evaluate( $dynexp );	
+	
+	<func:result select="$fails">;		
+
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		 exists                                   */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_exists">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+
+	var $tstopts = $test-ns/@cbd:argv;
+	
+	if(not($post-ns)) {
+		/* -------------------------------------------------- */
+		/* the selected item from the INI file does not exist */
+		/* therefor this test fails                           */
+		/* -------------------------------------------------- */		
+		<func:result select="$JPPC-TEST-FAIL">;
+	}
+	else {
+	   
+	   var $item = { 
+	      if( string-length( $tstopts )) {
+	         expr $tstopts;
+	      } else { expr "."; }
+	   }
+		var $dynexp = "$post-ns[not(" _ $item _ ")]";
+		var $fails = dyn:evaluate( $dynexp );	
+		<func:result select="$fails">;		
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		not-exists                                */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_not-exists">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $tstopts = $test-ns/@cbd:argv;
+	
+	var $item = { 
+	   if( string-length( $tstopts )) {
+	      expr $tstopts;	   
+	   }
+	   else { expr "."; }
+	}
+	
+	var $dynexp = "$post-ns[" _ $item _ "]";
+	var $fails = dyn:evaluate( $dynexp );	
+	
+	<func:result select="$fails">;
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		 delta                                    */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_delta">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $args = jcs:split( ",", $test-ns/@cbd:argv );
+	
+	var $delta-item = $args[1];
+	var $delta-value = $args[2];
+	
+	var $fails := {
+		if(contains( $delta-value, "%" )) {
+			call jppc:subEXEC_TEST_delta_percent( 
+				$pre-ns, $pre-iddb, 
+				$post-ns, $post-iddb,
+				$delta-item, $delta-value );
+		}
+		else {
+			call jppc:subEXEC_TEST_delta_fixed( 
+				$pre-ns, $pre-iddb,
+				$post-ns, $post-iddb,
+				$delta-item, $delta-value );
+		}
+	}
+	
+	<func:result select="$fails/child::*">;
+}
+
+template jppc:subEXEC_TEST_delta_percent( 
+	$pre-ns, $pre-iddb,
+	$post-ns, $post-iddb,
+	$delta-item, $delta-value )
+{
+	var $dv_regx = jcs:regex("[+-]?([[:digit:]]+)%?", $delta-value);
+	var $p_delta_val = $dv_regx[2] div 100;
+	
+	var $dyn_tstfail = {
+		expr "boolean(";
+		if(contains( $delta-value, "+" )) {
+			expr "$post_val > $post_upval";
+		}
+		else if( contains( $delta-value, "-" )) {
+			expr "$post_val < $post_dnval";
+		}
+		else {
+			expr "($post_val < $post_dnval) or ($post_val > $post_upval)";
+		}
+		expr ")";
+	}
+	
+	var $abs_delta = math:abs($p_delta_val);
+	
+	var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];	
+	for-each( $common_iddb ) { var $_item_id = .;
+		
+		var $pre_ns = jppc:id-to-xml( $pre-ns, $_item_id );
+		var $post_ns = jppc:id-to-xml( $post-ns, $_item_id );  
+		
+		var $pre_val = dyn:evaluate( "$pre_ns/" _ $delta-item );
+		var $post_val = dyn:evaluate( "$post_ns/" _ $delta-item );
+		
+		var $delta_val = $pre_val * $abs_delta;
+		
+		var $post_upval = $pre_val + $delta_val;
+		var $post_dnval = $pre_val - $delta_val;
+		if( dyn:evaluate( $dyn_tstfail )) {
+			copy-of $_item_id;
+		}
+	}
+}
+
+template jppc:subEXEC_TEST_delta_fixed( 
+	$pre-ns, $pre-iddb,
+	$post-ns, $post-iddb,
+	$delta-item, $delta-value )
+{	
+	
+	var $dv_regx = jcs:regex("[+-]?([[:digit:]]+)", $delta-value);
+	var $dv_value = $dv_regx[2];
+	
+	var $dyn_tstfail = {
+		expr "boolean(";
+		if(contains( $delta-value, "+" )) {
+			expr "$post_val > $post_upval";
+		}
+		else if( contains( $delta-value, "-" )) {
+			expr "$post_val < $post_dnval";
+		}
+		else {
+			expr "($post_val < $post_dnval) or ($post_val > $post_upval)";
+		}
+		expr ")";
+	}
+	
+	var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];	
+	for-each( $common_iddb ) { var $_item_id = .;
+		
+		var $pre_ns = jppc:id-to-xml( $pre-ns, $_item_id );
+		var $post_ns = jppc:id-to-xml( $post-ns, $_item_id );  
+		
+		var $pre_val = dyn:evaluate( "$pre_ns/" _ $delta-item );
+		var $post_val = dyn:evaluate( "$post_ns/" _ $delta-item );
+		
+		var $post_upval = $pre_val + $dv_value;
+		var $post_dnval = $pre_val - $dv_value;
+		
+		if( dyn:evaluate( $dyn_tstfail )) {
+			copy-of $_item_id;
+		}
+	}
+}
+
+
+

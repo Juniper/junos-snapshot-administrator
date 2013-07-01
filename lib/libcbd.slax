@@ -1,0 +1,643 @@
+/*
+* Author         : Jeremy Schulman
+* Library        : libcbd
+* Version        : 2012-sep-08
+* Platform       : All Junos
+* Description    : 
+*
+*    This file contains routines that are used to load a
+*    "curly brace document" (cbd) into an XML node-set
+*    format. 
+*
+* Copyright (c) 2012  Juniper Networks. All Rights Reserved.
+*
+* YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE, 
+* IN ADDITION TO ANY OTHER LICENSES AND TERMS REQUIRED BY JUNIPER NETWORKS.
+* 
+* JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+* ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+* DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+* CAREFULLY.
+*
+* THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+* WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+* IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+* OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+* PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+* ALLOWED BY APPLICABLE LAW.
+*
+* IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES, 
+* INCLUDING BUT NOT LIMITED TO LOST REVENUE, PROFIT OR DATA, OR
+* FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+* HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+* USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+* THE POSSIBILITY OF SUCH DAMAGES.
+*/
+
+version 1.0;
+
+/* Junos */
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+/* EXSLT */
+ns func extension = "http://exslt.org/functions";
+ns set extension  = "http://exslt.org/sets";
+
+/* JAWA Libs */
+ns jfile = "http://xml.juniper.net/jawalib/libjfile";
+
+/* THIS LIBRARY: curly brace document */
+ns cbd = "http://xml.juniper.net/jawalib/libcbd";
+
+/* ####################################################################### */
+/* ####################################################################### */
+/* ----------------------------------------------------------------------- */
+/*    PUBLIC:     [node-set] cbd:read( $filename )                         */
+/* ----------------------------------------------------------------------- */
+/*    PARAM $filename = name of the file to process                        */
+/*                                                                         */
+/*    PARAM $path-ns = a node-set of directories to look into              */
+/*                     for the file; passed directly to jfile:read()       */
+/*                                                                         */
+/*    PARAM $opts = a node-set of processing options:                      */
+/*       <stmt-no-semi> : used to indicate that statements do not          */
+/*                        end with semicolons (;).                         */
+/* ----------------------------------------------------------------------- */
+/*                                                                         */
+/*    This function will open the given $filename and drive the            */
+/*    cbd:parse() routine to produce the XML node-set from the             */
+/*    bracy file content                                                   */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+
+var $cbd:CWD := { <path> "."; }
+
+<func:function name="cbd:read">
+{
+	param $filename;
+	param $path-ns = $cbd:CWD;
+	param $opts = /null;
+	
+	var $getopts = cbd:getopts( $opts, $path-ns );
+	
+	var $done_read = cbd:do-read( $filename, $getopts );
+	<func:result select="$done_read">;
+}
+
+<func:function name="cbd:do-read">
+{
+   param $filename;
+   param $getopts;
+	
+	var $doc_lines = jfile:read( $filename, $getopts/path, "text", true() );	
+	if( $doc_lines ) {
+	   /* ------------------------------------------------------- */
+      /* given a flat node-set of lines, convert them first      */
+      /* intor "curl-brace-document (cbd)" element definitions   */
+      /* using cbd:parse(), and then convert those definitions   */
+      /* into structured XML.  This is very recurseive code!!    */
+	   /* ------------------------------------------------------- */
+	   
+	   var $cbd_ns = cbd:parse( $filename, $doc_lines, $getopts, 0 );
+	   var $xml_ns = cbd:to-xml( $filename, $cbd_ns, $getopts );	    
+	   	      
+	   <func:result select="$xml_ns">;
+	}
+	else {
+	   /* --------------------------------------------- */
+	   /* the filename provided did not exist or there  */
+	   /* was no data found in the file; emit an error  */
+	   /* --------------------------------------------- */
+	   
+	   var $cbd_err := { <cbd:error> {
+	      <file> $filename;
+	      <message> "File not-found: '" _ $filename _ "'";
+	   }}
+	   
+	   <func:result select="$cbd_err">;
+	}
+}
+
+/* ####################################################################### */
+/*                            cbd:getopts()                                */
+/* ----------------------------------------------------------------------- */
+/*   Function that takes the options provided to cbd:read() and creates    */
+/*   a node-set used by other processing routines in this library.         */
+/* ----------------------------------------------------------------------- */
+/* ####################################################################### */
+
+<func:function name="cbd:getopts">
+{
+   param $opts;
+   param $path-ns;
+   
+   var $getopts := {
+      
+      <regex-stmt> {
+         if( $opts/stmt-no-semi ) {
+            expr $cbd:regex-stmt-nosemi;
+         }
+         else {
+            expr $cbd:regex-stmt;
+         }
+      }
+      
+      /* ----------------------------------- */
+      /* make a copy of the input params for */
+      /* recursive import file handling      */
+      /* ----------------------------------- */
+      <opts> { copy-of $opts; }
+      <path> { copy-of $path-ns; }      
+   }
+   
+   <func:result select="$getopts">;
+}
+
+/* ####################################################################### */
+/*                            cbd:to-xml()                                 */
+/* ----------------------------------------------------------------------- */
+/*    toplevel function used to create structured XML based on the         */
+/*    cbd element definitions created by cbd:parse()                       */
+/* ----------------------------------------------------------------------- */
+/* ####################################################################### */
+
+<func:function name="cbd:to-xml">
+{
+   param $filename;
+	param $brdoc-ns;
+	param $getopts;
+
+	var $firstcurly = $brdoc-ns/cbd:curly-open[1];
+	
+	/* --------------------------------------------------- */
+	/* see if there are any stanzas, and if not, this is   */
+	/* a simple case; so handle it directly                */
+	/* --------------------------------------------------- */
+	
+	if(not( $firstcurly )) {
+	   var $as_xml := { 
+	      call cbd:stmts-to-xml( $stmts = $brdoc-ns/child::*, $getopts );  
+	   }
+	   <func:result select="$as_xml">;
+	}
+	else {
+		   
+	   var $open-ns = $brdoc-ns/cbd:curly-open;
+	   var $close-ns = $brdoc-ns/cbd:curly-close;
+	   
+	   var $c_open = count( $open-ns );
+	   var $c_close = count( $close-ns );
+	   
+	   if( $c_open == $c_close ) {
+	      /* ---------------------------------------------------- */
+	      /* we have matching "{" and "}" count, we are good to   */
+	      /* convert the flat text document to XML structure      */
+	      /* ---------------------------------------------------- */
+	      
+	      var $as_xml = cbd:to-xml-begin( $brdoc-ns, $open-ns, $close-ns, $getopts );
+	      
+	      <func:result select="$as_xml">;
+	   }
+	   else {
+	      /* ------------------------------------------------ */
+	      /* we do not have a matching count on "{" and "}",  */
+	      /* so kick an error, and don't attempt to process   */
+	      /* the flat document into XML                       */
+	      /* ------------------------------------------------ */
+	      
+	      var $cbd_err := { <cbd:error> {
+	         <file> $filename;
+	         <message> "brace-mismatch: open=" _ $c_open _ " close=" _ $c_close _ "]";
+	      }}
+	      <func:result select="$cbd_err">;
+	   }
+	}
+}
+
+/* ####################################################################### */
+/*                            cbd:to-xml-begin()                           */
+/* ----------------------------------------------------------------------- */
+/*    secondary toplevel function used to create structured XML based      */
+/*    on the cbd element definitions created by cbd:parse().  This         */
+/*    function is only called by cbd:to-xml() once it has validated        */
+/*    the input before this stage of processing                            */
+/* ----------------------------------------------------------------------- */
+/* ####################################################################### */
+
+<func:function name="cbd:to-xml-begin">
+{
+   param $brdoc-ns;
+   param $open-ns;
+   param $close-ns;  
+   param $getopts;
+   
+   /* --------------------------------------------------------- */
+   /* Find the matching curly-open/curly-close elements.  We    */
+   /* need this information so we can determine where to start  */
+   /* creating element structures and handle the nesting        */
+   /* --------------------------------------------------------- */	
+   
+   var $all_braces := { call cbd:find-curly-mates( $open-ns, $close-ns ); }
+   
+   /* ---------------------------------------------------- */
+   /* now sort these so we know the relative order of the  */
+   /* stanzas and sub-stanzas                              */
+   /* ---------------------------------------------------- */
+   
+   var $sorted_braces := { for-each( $all_braces/match ) {
+      <xsl:sort data-type="number" select="@open">;
+      copy-of .;
+   }}
+   
+   /* --------------------------------------------- */	   
+   /* convert the flat document to heirarchical XML */
+   /* NOTE: recursive template called               */
+   /* --------------------------------------------- */
+   
+   var $result_xml := { call cbd:to-xml-fromhere( $getopts ) {
+      with $braces = $sorted_braces/match;
+      with $doc-ns = $brdoc-ns/child::*;
+   }}
+   
+   <func:result select="$result_xml">;
+}
+
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*    Template the dynamically creates the <elements> and                  */
+/*    @attributes for a given "bracy" portion of the input document        */
+/*                                                                         */
+/* ----------------------------------------------------------------------  */
+/*               !!!!!    RECURSIVE TEMPLATE     !!!!!                     */
+/* ----------------------------------------------------------------------  */
+/* ####################################################################### */
+/* ####################################################################### */
+
+template cbd:to-xml-fromhere( $braces, $doc-ns, $last-pos = 0, $getopts )
+{
+   /* ----------------------------------------------- */
+   /* if this stanza has no sub-stanzas, then simply  */
+   /* generate the statements                         */
+   /* ----------------------------------------------- */
+   
+   if(not( $braces )) {
+      
+      call cbd:stmts-to-xml( $stmts = $doc-ns, $getopts );
+      
+      /* ----------------------------------------------- */
+      /* all done, so make sure the remaining code       */
+      /* doesn't do anything after the following 'else'  */
+      /* since there is no way to "return" from a        */
+      /* template directly ... it's just fall-thru       */
+      /* ----------------------------------------------- */      
+   }
+   else {
+      
+      /* ---------------------------------------------- */
+      /* find the groups of sub-stanzas at this level   */
+      /* of processing the document. we will iterate    */
+      /* through these recursively while generating the */
+      /* statements before and after each grouping       */
+      /* ---------------------------------------------- */
+      
+	   var $my-stanzas := { call cbd:outer-braces( $braces ); }  
+	   var $c_stanzas = count( $my-stanzas/match );
+	   var $last_stanza = $my-stanzas/match[$c_stanzas];
+            
+      for-each( $my-stanzas/match ) { var $stanza = .;
+         
+         /* --------------------------------- */
+         /* the statements before this stanza */
+         /* --------------------------------- */
+         
+         var $b_stmts = $doc-ns
+            [@pos < $stanza/@open]
+            [@pos > jcs:first-of( $stanza/preceding-sibling::match[1]/@close, $last-pos)];
+         
+         call cbd:stmts-to-xml( $stmts = $b_stmts, $getopts );
+         
+         /* --------------------------------------------- */
+         /* now recursively call the template to process  */
+         /* the sub-stanza $stanza                        */
+         /* --------------------------------------------- */         
+         
+         var $inr_doc_ns = $doc-ns[@pos > $stanza/@open][@pos < $stanza/@close];
+         var $inr_br_ns = $braces[@open > $stanza/@open][@close < $stanza/@close];
+         
+         var $c_open = $doc-ns[@pos = $stanza/@open];
+         
+         <xsl:element name=$c_open/@name> {
+            copy-of $c_open/@*[starts-with(name(),"cbd:")];            
+            call cbd:to-xml-fromhere( $getopts ) {
+               with $braces = $inr_br_ns;
+               with $doc-ns = $inr_doc_ns;
+               with $last-pos = $stanza/@open;
+            }   
+         }
+      } /* for-each of the sub-stanzas */     
+      
+      /* statements after any sub-stanzas */
+      
+      var $last_stmts = $doc-ns[@pos > $last_stanza/@close];
+      call cbd:stmts-to-xml( $stmts = $last_stmts, $getopts );
+      
+   } /* when there are sub-stanzas */
+}
+
+template cbd:outer-braces( $braces )
+{
+   var $top = $braces[1];
+
+   if( $top ) {
+      copy-of $top;
+      var $rest = $braces[@open > $top/@close];
+      call cbd:outer-braces( $braces = $rest );
+   }
+}
+
+template cbd:stmts-to-xml( $stmts, $getopts ) 
+{   
+   for-each( $stmts ) { 
+      /* ---------------------------------------------------------- */      
+      /* if this is a simple statement, then create the XML element */
+      /* ---------------------------------------------------------- */
+      if( self::cbd:stmt ) {
+         <xsl:element name=@name> {
+            copy-of @*[starts-with(name(),"cbd:")];
+            expr .;
+         }      
+      }
+      else if( self::cbd:import ) {
+         /* ------------------------------------------------- */
+         /* else, if this is an import directive, do that now */
+         /* ------------------------------------------------- */
+
+         var $filename = string(.);         
+         copy-of cbd:do-read( $filename, $getopts );
+      }
+      /* ---------------------------------------------------------------- */
+      /* else, we are ignoring cbd:blank-line and cbd:comment for now ... */
+      /* ---------------------------------------------------------------- */      
+   }
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*      Create <match> elements that 'tag' the location of the the         */
+/*      brace-open ("{") and brace-close ("}") lines in the document       */
+/*      These <match> element @pos values will be out-of-order, so         */
+/*      the calling routine will need to sort them using <xsl:sort>        */
+/*                                                                         */
+/* ----------------------------------------------------------------------  */
+/*               !!!!!    RECURSIVE TEMPLATE     !!!!!                     */
+/* ----------------------------------------------------------------------  */
+/* ####################################################################### */
+/* ####################################################################### */
+
+template cbd:find-curly-mates( $open-ns, $close-ns )
+{
+   if( $close-ns ) {
+      var $cc_inr = $close-ns
+         [ preceding-sibling::cbd:curly-open[1]/@pos > jcs:first-of(preceding-sibling::cbd:curly-close[1]/@pos,0) ];
+      
+      var $co_inr = $cc_inr/preceding-sibling::cbd:curly-open[1];
+      
+      for-each( $cc_inr ) { var $pos = position();
+         var $cc = .;
+         var $co = $co_inr[$pos];
+         <match open=$co/@pos close=$cc/@pos>;
+      }
+      
+      var $cc_r = set:difference( $close-ns, $cc_inr );
+      var $co_r = set:difference( $open-ns, $co_inr );
+      
+      var $new_set := { for-each( $cc_r | $co_r ) {
+         <xsl:sort data-type="number" select="@pos">; 
+         copy-of .;
+      }}
+      
+      var $new_open = $new_set/child::cbd:curly-open;
+      var $new_close = $new_set/child::cbd:curly-close;
+      
+      call cbd:find-curly-mates( $open-ns = $new_open, $close-ns = $new_close );
+   }
+}
+
+/* ####################################################################### */
+/*                            cbd:parse()                                  */
+/* ----------------------------------------------------------------------- */
+/*                                                                         */
+/*    Function that takes a text node-set produced, i.e jcs:break-lines()  */
+/*    and creates convertes it into cbd element defintions that represent  */
+/*    the function of the statement; such as "curly-open", "curly-close",  */
+/*    "statement", "import control", etc.                                  */
+/*                                                                         */
+/* ----------------------------------------------------------------------- */
+/* ####################################################################### */
+
+<func:function name="cbd:parse">
+{
+   param $filename;
+	param $doc-ns;
+	param $getopts;
+	param $pos-offset;
+		
+	var $cbd_ns := { for-each( $doc-ns ) { var $line = .;
+	   
+	   var $pos = position() + $pos-offset;
+	   
+	   var $nsline = normalize-space( $line );
+	   if( $nsline == "}" ) {
+	      <cbd:curly-close pos=$pos>; 
+	   }
+	   else if( $nsline == "") {
+	      <cbd:blank-line pos=$pos>;  
+	   }
+	   else if( starts-with( $line, "#" )) {
+	      <cbd:comment pos=$pos> $line;  
+	   }
+	   else if( starts-with( $line, "|<|" )) {
+	      /* ---------------------------------------------- */
+	      /* import control, extract the filename to import */
+	      /* ---------------------------------------------- */	      
+	      var $import_fname = substring-before(substring-after( $line, "|<| " ),";");
+	      if(string-length( $import_fname ) == 0) {
+	         <cbd:error> {
+	            <file> $filename;
+	            <line> $pos;
+	            <message> "Import directive '|<|' with no file-name, or missing ';'";
+	         }
+	      }
+	      else {
+	         <cbd:import pos=$pos> $import_fname;
+	      }
+	   }
+	   else {
+	      /* ---------------------------------------------------- */	      
+	      /* first check to see if this is a start of a stanza    */
+	      /* this MUST be first given the regex order of things!! */
+	      /* ---------------------------------------------------- */
+	      var $brace_open = cbd:parse-brace-open( $line, $pos );
+	      if( $brace_open ) {
+	         copy-of $brace_open;
+	      }	      
+	      else {
+	         /* ------------------------------------------ */
+	         /* next check to see if this is a 'statement' */
+	         /* ------------------------------------------ */	         
+	         var $statement = cbd:parse-statement( $line, $pos, $getopts );
+	         if( $statement ) {
+	            copy-of $statement;
+	         }	            
+	         else {
+	            /* ------------------------------------------------------ */
+	            /* if we are here, then the parser could not figure out   */
+	            /* what to do ... this represents a configuration file    */
+	            /* error, so emit that error for the caller to deal with  */
+	            /* ------------------------------------------------------ */	            
+	            <cbd:error> {
+	               <file> $filename;
+	               <message> "parse-error on line " _ $line;
+	               <line> $pos;
+	            }
+	         }
+	      }
+	   }
+	}}
+	
+	<func:result select="$cbd_ns">;
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*    The following functions use jcs:regex() to create bracy              */
+/*    document elements corresponding to the content in the document       */
+/*                                                                         */
+/*    <cbd:curly-open>   : a line that ends with "{"                       */
+/*    <cbd:stmt>         : a configuration statement line                  */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+/* ------------------------------------------------------------ */
+/* these are jcs:regex() expressions used to parse the document */
+/* ------------------------------------------------------------ */
+
+var $cbd:regex-id = "[[:alnum:][.hyphen.][.underscore.][.slash.]]+";
+
+var $cbd:regex-open = "^[[:space:]]*([^[:space:]{]+)[[:space:]]*([^{]+)? \\{[[:space:]]*$";  
+var $cbd:regex-open-kw = "^[[:space:]]*([^[:space:]]+)[[:space:]]*(.+)? \\{[[:space:]]*$";
+
+var $cbd:regex-stmt = "^[[:space:]]*([[:punct:][:alnum:]_-]+)[[:space:]]*(.*)?[[:space:]]*;.*$";
+var $cbd:regex-stmt-nosemi = "^[[:space:]]*([[:punct:][:alnum:]_-]+)[[:space:]]*(.*)?.*$";
+
+<func:function name="cbd:qname">
+{
+   param $name;
+   var $regx = jcs:regex( "^[[:alpha:]][[:alnum:]_-]*$", $name );
+   if( count( $regx ) ) {
+      <func:result select="true()">;
+   }
+   else {
+      <func:result select="false()">;
+   }
+}
+
+<func:function name="cbd:parse-statement">
+{
+	param $line;
+	param $linepos;
+	param $getopts;
+	
+   var $regx = jcs:regex( $getopts/regex-stmt, $line ); 
+
+	if( $regx ) {
+	   var $name = $regx[2];
+	   var $value = $regx[3];
+
+	   if(not( cbd:qname( $name ))) {
+	      var $ns := <cbd:stmt name="cbd:xqname" cbd:name=$name pos=$linepos> $value;
+	      <func:result select="$ns">;
+	   }
+	   else {
+	      var $ns := <cbd:stmt name=$name pos=$linepos> $value;
+	      <func:result select="$ns">;
+	   }
+	}
+	else {	
+		<func:result select="false()">;
+	}
+}
+
+<func:function name="cbd:parse-brace-open">
+{
+	param $line;
+	param $linepos;
+
+	var $regx = jcs:regex( $cbd:regex-open, $line );
+	var $regx-kw = jcs:regex( $cbd:regex-open-kw, $line );
+	var $regx-m = jcs:first-of( $regx, $regx-kw );
+	if( $regx-m ) {
+	   var $name = $regx-m[2];
+	   var $argv = $regx-m[3];
+	   
+	  
+	   if(not( cbd:qname( $name ))) {
+	      var $ns := <cbd:curly-open name="cbd:xqname" cbd:name=$name cbd:open="" pos=$linepos> {
+	         if( $argv ) { <xsl:attribute name="cbd:argv"> $argv; }
+	      }
+	      <func:result select="$ns">;	      	      
+	   }
+	   
+	   /* ---------------------------------------------------------- */
+	   /* else the $name is a qname value that can be used to create */
+	   /* the XML element structure directly                         */
+	   /* ---------------------------------------------------------- */	   
+	   
+	   else {
+	      var $ns := <cbd:curly-open name=$name cbd:open="" pos=$linepos> {
+	         if( $argv ) { <xsl:attribute name="cbd:argv"> $argv; }
+	      }
+	      <func:result select="$ns">;
+	   }
+	}
+	/* ------------------------------- */
+	/* else this is not a 'curly-open' */
+	/* ------------------------------- */	
+	else {
+		<func:result select="false()">;
+	}
+}
+
+<func:function name="cbd:xpath-tail">
+{
+	param $in-xpath;
+	
+	var $xpath = normalize-space( $in-xpath );
+	
+	if( $xpath ) {	
+		var $tail = { 
+			if(starts-with( $xpath, "[" )) {   /* xpath-filter */
+				expr $xpath;
+			}
+			else {
+				if(not(starts-with( $xpath, "/" ))) { expr "/"; }
+				expr $xpath; 
+			}
+		}
+		<func:result select="string($tail)">;
+	}
+	else {
+		<func:result select="''">;
+	}
+}
+
+

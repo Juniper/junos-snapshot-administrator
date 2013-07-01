@@ -1,0 +1,85 @@
+/*
+* Author         : Jeremy Schulman
+* Library        : libxns
+* Platform       : All Junos
+* Description    : 
+*
+*    This file contains the function jcs:execute-xns()
+*    which is similar in purpose to jcs:execute().  The primary
+*    difference is that the jcs:execute-xns() routine will
+*    remove the default XML namespace (xnlns) definion.  This
+*    is needed in cases where the data needs to be saved in
+*    a file and later used; thus avoiding namespace related
+*    issues when reloading the data using the document()
+*    function.
+*
+* Copyright (c) 2012  Juniper Networks. All Rights Reserved.
+*
+* YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE, 
+* IN ADDITION TO ANY OTHER LICENSES AND TERMS REQUIRED BY JUNIPER NETWORKS.
+* 
+* JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+* ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+* DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+* CAREFULLY.
+*
+* THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+* WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+* IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+* OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+* PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+* ALLOWED BY APPLICABLE LAW.
+*
+* IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES, 
+* INCLUDING BUT NOT LIMITED TO LOST REVENUE, PROFIT OR DATA, OR
+* FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+* HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+* USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+* THE POSSIBILITY OF SUCH DAMAGES.
+*/
+
+version 1.0;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+ns func extension = "http://exslt.org/functions";
+
+<func:function name="jcs:execute-xns"> {
+	param $jnx;
+	param $cmd;
+	
+	var $rsp = jcs:execute( $jnx, $cmd );
+	var $data := { apply-templates $rsp/child::* { mode "jcs:xns"; }}
+	
+	<func:result select="$data">;
+}
+
+match /|comment()|processing-instruction() { mode "jcs:xns";	
+	<xsl:copy> {
+		apply-templates { mode "jcs:xns"; }
+	}
+}
+
+match * { mode "jcs:xns";
+	var $name = name(.);
+	<xsl:element name=$name> {
+		apply-templates @*|node() { mode "jcs:xns"; }
+	}
+}
+
+match @junos:* { mode "jcs:xns";
+	var $name = name(.);
+	<xsl:attribute name=$name> {
+		<xsl:value-of select=".">;
+	}
+}
+
+match @* { mode "jcs:xns";
+	var $name = local-name();
+	<xsl:attribute name=$name> {
+		<xsl:value-of select=".">;
+	}
+}
+

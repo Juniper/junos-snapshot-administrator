@@ -1,0 +1,388 @@
+/*
+* Author         : Jeremy Schulman
+* Program        : jppc
+* Platform       : All Junos
+* Description    : 
+*
+*    This file is part of the 'jppc' automation application
+*    that is used to "snapshot" a Junos runtime system
+*    and then compare the operational status with a set of
+*    user defined test criteria
+*
+* Copyright (c) 2012  Juniper Networks. All Rights Reserved.
+*
+* YOU MUST ACCEPT THE TERMS OF THIS DISCLAIMER TO USE THIS SOFTWARE, 
+* IN ADDITION TO ANY OTHER LICENSES AND TERMS REQUIRED BY JUNIPER NETWORKS.
+* 
+* JUNIPER IS WILLING TO MAKE THE INCLUDED SCRIPTING SOFTWARE AVAILABLE TO YOU
+* ONLY UPON THE CONDITION THAT YOU ACCEPT ALL OF THE TERMS CONTAINED IN THIS
+* DISCLAIMER. PLEASE READ THE TERMS AND CONDITIONS OF THIS DISCLAIMER
+* CAREFULLY.
+*
+* THE SOFTWARE CONTAINED IN THIS FILE IS PROVIDED "AS IS." JUNIPER MAKES NO
+* WARRANTIES OF ANY KIND WHATSOEVER WITH RESPECT TO SOFTWARE. ALL EXPRESS OR
+* IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY WARRANTY
+* OF NON-INFRINGEMENT OR WARRANTY OF MERCHANTABILITY OR FITNESS FOR A
+* PARTICULAR PURPOSE, ARE HEREBY DISCLAIMED AND EXCLUDED TO THE EXTENT
+* ALLOWED BY APPLICABLE LAW.
+*
+* IN NO EVENT WILL JUNIPER BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES, 
+* INCLUDING BUT NOT LIMITED TO LOST REVENUE, PROFIT OR DATA, OR
+* FOR DIRECT, SPECIAL, INDIRECT, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE DAMAGES
+* HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY ARISING OUT OF THE 
+* USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF JUNIPER HAS BEEN ADVISED OF 
+* THE POSSIBILITY OF SUCH DAMAGES.
+*/
+
+version 1.0;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+ns dyn extension = "http://exslt.org/dynamic";
+ns set extension = "http://exslt.org/sets";
+ns func extension = "http://exslt.org/functions";
+ns exsl extension = "http://exslt.org/common";
+ns str extension = "http://exslt.org/strings";
+ns date extension = "http://exslt.org/dates-and-times";
+
+ns jfile = "http://xml.juniper.net/jawalib/libjfile";
+ns cbd = "http://xml.juniper.net/jawalib/libcbd";
+ns jppc = "http://xml.juniper.net/jppc";
+
+import "../lib/libjfile.slax";
+import "../lib/libcbd.slax";
+import "jppc-utils.slax";
+import "jppc-tests.slax";
+
+param $CONF-FILE;				/* REQ: control filename */
+param $TARGET;					/* REQa: name of the target device */
+param $TARGET-FILE;        /* REQb: filename with list of target devices */
+param $SNAP-N1;            /* REQ: name of first snap */
+param $SNAP-N2;            /* REQ: name of second snap */
+param $SECTION;				/* OPT: check only this [section] */
+param $ENV_PWD;            /* REQ: $PWD */
+
+var $jfile:JUNOS = false();
+
+var $jppc:SNAPCHECK = boolean( $SNAP-N1 == $SNAP-N2 );
+
+match / {
+	
+	/* -------------------------------------------------------- */
+	/* load/parse the config file, or exit now                  */
+	/* -------------------------------------------------------- */	
+
+	var $conf-ns = cbd:read( $CONF-FILE );
+	if(not( $conf-ns )) {
+		<xsl:message terminate="yes"> {
+			expr "\n";
+			expr "Unable to load configuration file: " _ $CONF-FILE _ "\n";
+			expr "Exiting.\n";
+		}
+	}
+	
+	/* ----------------------------------------------------------------- */
+   /* if a section was provided, make sure it's valid before proceeding */
+	/* ----------------------------------------------------------------- */   
+
+	var $section-cmd-ns = jppc:section( $conf-ns );   
+	
+	if( $SECTION ) {
+		if(not( $section-cmd-ns )) {
+			expr jcs:output("ERROR: Could not find: '", $SECTION, "' in config file '", $CONF-FILE, "' !" );
+			<xsl:message terminate="yes">;
+		}
+	}
+	
+	var $targets = jppc:targets();
+	if(not( $targets )) {
+	   expr jcs:output("ERROR: no TARGET or TARGET-FILE defined !");
+	   <xsl:message terminate="yes">;
+	}	
+	
+   for-each( $targets ) { var $target = string(.);
+      expr jcs:output( $LINE-OF-BANG );
+      expr jcs:output( ">>>" );      
+      expr jcs:output( ">>> TARGET: ", $target );
+      expr jcs:output( ">>>" );
+      expr jcs:output( $LINE-OF-BANG );
+      call do_check_target( $conf-ns, $target, $section-cmd-ns );
+   }	
+}
+
+template do_check_target( $conf-ns, $target, $section-cmd-ns )
+{
+   if( $section-cmd-ns ) {
+      call do_check_cmd( $target, $cmd-ns = $section-cmd-ns );		
+	}
+	else {	
+		/* ------------------------------------------------- */
+		/* loop through each of the 'do' commands; i.e.      */
+		/* [sections], grabbing  a node-set for each of the  */
+		/* specific command sections                         */
+		/* ------------------------------------------------- */	
+		
+		for-each( $conf-ns/do/child::* ) {
+			var $cmd-ns = dyn:evaluate( "$conf-ns/" _ name(.));
+			if(not( $cmd-ns )) {
+				expr jcs:output("---> ERROR: section '", $SECTION, "' not found ... SKIPPING!");
+			}
+			else if( true() ) {
+				call do_check_cmd( $target, $cmd-ns );
+			}
+		}
+	}
+}
+
+var $LINE-OF-DASH = str:padding(75,"-");
+var $LINE-OF-EQU = str:padding(75,"=");
+var $LINE-OF-BANG = str:padding(75,"!");
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                    Process a command [section]                          */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+template do_check_cmd( $target, $cmd-ns )
+{
+	var $cmd-name = name( $cmd-ns );
+	expr jcs:output($LINE-OF-DASH);
+	expr jcs:output("CHECKING SECTION: ", $cmd-name );
+	expr jcs:output($LINE-OF-DASH);
+	
+	/* ---------------------------------------------------- */
+	/* Load the PRE and POST XML data sets for this command */
+	/* and setup the node-set variables to the document     */
+	/* contents; i.e. one below the docroot element.  The   */
+	/* docroot element name is the same as the command, so  */
+	/* we need to create a dynamic xpath expression to      */
+	/* deal with this.                                      */
+	/* ---------------------------------------------------- */	
+	
+	var $pre-fname  = concat( $ENV_PWD,"/",$target,"__",$cmd-name,"__",$SNAP-N1,".xml" );
+	var $post-fname = concat( $ENV_PWD,"/",$target,"__",$cmd-name,"__",$SNAP-N2,".xml" );
+	var $pre-ns = document( $pre-fname )/jppc:section;
+	if(not( $pre-ns )) {
+	   <xsl:message terminate="yes"> "Unable to load snapshot data";
+	}
+	
+	var $post-ns = document( $post-fname )/jppc:section;
+	if(not( $post-ns )) {
+	   <xsl:message terminate="yes"> "Unable to load snapshot data";	   
+	}
+	
+	/* --------------------------------------------------- */
+	/* each command section could contain one or more      */
+	/* "data item(s)" to check, aka block = 'check-ns'.    */
+	/* --------------------------------------------------- */	
+	
+	for-each( $cmd-ns/item | $cmd-ns/iterate ) {
+		var $_check = .;
+		call do_check_select( $cmd-ns, $check-ns = $_check, $pre-ns, $post-ns );
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*              Process a "select" within a command section                */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+template do_check_select( $cmd-ns, $check-ns, $pre-ns, $post-ns )
+{
+	var $select_value = $check-ns/@cbd:argv;
+	var $sel_xpath = cbd:xpath-tail( $select_value );
+	
+	/* -------------------------------------------------- */
+	/* generate a NS to the pre-check and post-check data */
+	/* -------------------------------------------------- */	
+		
+	var $pre_dyn_ns = dyn:evaluate( "$pre-ns" _ $sel_xpath );
+	var $post_dyn_ns = dyn:evaluate( "$post-ns" _ $sel_xpath );	
+	
+	/* -------------------------------------------------- */
+	/* now we need to make a id database foreach node-set */
+	/* -------------------------------------------------- */	
+	
+	var $pre_id_db = jppc:make-iddb( $pre_dyn_ns, $check-ns );
+	var $post_id_db = jppc:make-iddb( $post_dyn_ns, $check-ns );	
+	
+	
+	/* -------------------------------------------------- */
+	/* now execute the 'test' sequence for this command   */
+	/* -------------------------------------------------- */	
+
+	var $run_tests = $check-ns/child::*[name(.) == $JPPC-TEST-NAMES];
+	   
+	for-each( $run_tests ) {var $test-ns = .;
+	   
+	   var $test_oper = name( $test-ns );
+	   var $test_ele = $JPPC-TEST-OPERATORS/child::*[name(.) == $test_oper];
+	   if( $test_ele/@diff && $jppc:SNAPCHECK ) {
+	      var $test_desc = jcs:first-of( $test-ns/info, position() );
+	      expr jcs:output("SKIPPING: ", $test_oper, ": ", $test_desc );
+	   }
+	   else { call do_cmd_test( $cmd-ns, $check-ns, $test-ns, 
+						  		$pre-ns = $pre_dyn_ns,
+						  		$pre-iddb = $pre_id_db,
+						  		$post-ns = $post_dyn_ns, 
+						  		$post-iddb = $post_id_db );
+		}
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                    Execute a test within a block                        */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+template do_cmd_test( $cmd-ns, $check-ns, $test-ns, 
+							 $pre-ns, $pre-iddb,
+							 $post-ns, $post-iddb )
+{
+	var $test-id = position();
+	var $test_desc = jcs:first-of( $test-ns/info, $test-id );
+
+	var $test_fn = "jppc:EXEC_TEST_" _ name( $test-ns );
+	
+	/* ---------------------------------------------------------- */
+	/* test to see if the function is available, and if so, call  */
+	/* the corresponding function located in jppc-tests.slax      */
+	/* ---------------------------------------------------------- */	
+	
+	if(function-available( $test_fn )) {
+		
+		var $test_dyn = {	expr $test_fn _ "(";
+			expr " $cmd-ns, $check-ns, $test-ns, ";
+			expr " $pre-ns, $pre-iddb, $post-ns, $post-iddb";
+			expr ")";
+		}
+		
+		var $fails = dyn:evaluate( $test_dyn );
+		
+		if( $fails ) {
+		/*
+		 * test failed, and we need to display the 'err' report as 
+		 * defined in the INI file
+		 */
+			expr jcs:output("- TEST FAILED: ", $test_desc );
+			if( $test-ns/err ) {
+				call do_cmd_err_msg( $cmd-ns, $check-ns, $test-ns,
+											$pre-ns, $pre-iddb, $post-ns, $post-iddb, 
+											$fails );
+			}
+			else {
+				expr jcs:output("---> WARNING 'err' defined ... <---");
+			}
+		}
+		/*
+		 * report that the test passed 
+		 */
+		else {
+			expr jcs:output("+ TEST PASSED: ", $test_desc );
+		}
+	}
+	/*
+	 * else there is not a corresponding test function in jppc-tests.slax
+	 */
+	else {
+		expr jcs:output("ERROR: unrecognized test for ", $test_desc, " ... SKIPPING !");
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*       Display the 'err' message for each failed item in the test        */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+template do_cmd_err_msg( $cmd-ns, $check-ns, $test-ns,
+			  					 $pre-ns, $pre-iddb, $post-ns, $post-iddb,
+			  					 $fails )
+{
+	var $dynpf = jppc:make-err-dynpfs( $cmd-ns, $check-ns, $test-ns );	
+	if( name( $fails ) == "jppc:id" ) {
+		
+		for-each( $fails ) { var $_id = .;
+			
+			var $PRE = jppc:id-to-xml( $pre-ns, $_id );
+			var $POST = jppc:id-to-xml( $post-ns, $_id );
+			
+			/* -------------------------------------------------------- */
+			/* in general, we'll always be looking at the $POST data.   */
+			/* HOWEVER, in the 'same-list' test, the $POST data won't   */
+			/* be present, so use the $PRE data                         */
+			/* -------------------------------------------------------- */
+			
+			var $item-ns = jcs:first-of( $POST, $PRE );
+			
+			for-each( $dynpf/line ) { var $_dynpf = .;
+				
+				/* ----------------------------------------------------- */
+				/* If there are parameter variables to the printf, then  */
+				/* we need to put the data item into 'context' so that   */
+				/* the pvars defined will evaluate correctly when        */
+				/* we use the dyn:evaluate function                      */
+				/* ----------------------------------------------------- */
+				
+				if( $_dynpf/pvars ) { for-each( $item-ns ) { 			
+					var $dynprintf = "jcs:printf($_dynpf/pfmt," _ $_dynpf/pvars _ ")";
+					var $dynv = jcs:output(dyn:evaluate($dynprintf));
+				}}
+				/* otherwise, simple printtf without parameters */
+				else {
+					var $dynv = jcs:output(dyn:evaluate("jcs:printf($_dynpf/pfmt)"));
+				}			
+			}
+		}
+	}
+	else {  /* $fails = the failed selected nodes from $post-ns */
+		for-each( $fails ) { var $_fail_ns = .;
+			
+			/* ------------------------------------------------ */			
+			/* create the $PRE and $POST variables names so the */
+			/* test.err report formats can use them.            */
+			/* ------------------------------------------------ */
+			
+			var $f_id = jppc:xml-to-id( $_fail_ns, $check-ns );			
+			var $PRE = jppc:id-to-xml( $pre-ns, $f_id );
+			var $POST = jppc:id-to-xml( $post-ns, $f_id );
+			
+			for-each( $dynpf/line ) { var $_dynpf = .;
+				
+				/* ----------------------------------------------------- */
+				/* If there are parameter variables to the printf, then  */
+				/* we need to put the data item into 'context' so that   */
+				/* the pvars defined will evaluate correctly when        */
+				/* we use the dyn:evaluate function                      */
+				/* ----------------------------------------------------- */
+				
+				if( $_dynpf/pvars ) { for-each( $_fail_ns ) { 								
+					var $dynprintf = "jcs:printf($_dynpf/pfmt," _ $_dynpf/pvars _ ")";
+					var $dynv = jcs:output(dyn:evaluate($dynprintf));
+				}}
+				/* otherwise, simple printtf without parameters */
+				else {
+					var $dynv = jcs:output(dyn:evaluate("jcs:printf($_dynpf/pfmt)"));
+				}			
+			}
+		}
+	}
+}
+
+
+
+
+

@@ -64,11 +64,14 @@ var $JPPC-TEST-OPERATORS := {
 	<list-not-less diff="">;      /* no-args */
 	<list-not-more diff="">;      /* no-args */
 	<no-diff diff="">;     	      /* <xpath> */														/* .count = true */
+	<no-diff-in diff="">;     	      /* <xpath> */														/* .count = true */
 	<all-same>;			            /* <xpath>,[xpath-refernce-item] */
 	<is-equal>;			            /* <xpath>,"<str-value>"|<num-value> */      			/* .count = <num-value> */
 	<not-equal>;		            /* <xpath>,"<str-value>"|<num-value> */ 					/* .count = <num-value> */
 	<is-lt>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
+	<is-lt-in>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
 	<is-gt>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
+	<is-gt-in>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
 	<is-in>;				            /* <xpath>,"<str-item1>","<str-item2>",... */
 	<not-in>;			            /* <xpath>,"<str-item1>","<str-item2>",... */
 	<in-range>;			            /* <xpath>,<min-num>,<max-num> */
@@ -182,6 +185,84 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 			/* ----------------------------------------------- */
 			
 			if( dyn:evaluate($boolexp) == false() ) {
+				copy-of $_id;
+			}
+		}}
+		
+		<func:result select="$diffs/child::*">;
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		no-diff-in                             */
+/*                                                                         */
+/* Note: the no-diff-in will silent ignore the comparison of a xpath       */
+/* expression that returns null for both PRE and POST node-sets.		   */
+/*                                                                         */
+/* Changed by Diogo Montagner <dmontagner@juniper.net> @2013-05-15		   */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_no-diff-in">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+
+	if( $test-ns/count ) {
+		/* ------------------------------------------- */
+		/* checking to see if the count of the         */
+		/* element(s) has changed ... this really is   */
+		/* only used with $check-ns/listof             */
+		/* ------------------------------------------- */
+		
+		if( count( $pre-ns ) != count( $post-ns )) {
+			<func:result select="$JPPC-TEST-FAIL">;
+		}
+		else {
+			<func:result select="$JPPC-TEST-PASS">;
+		}
+	}
+	else {
+		/* ----------------------------------------- */
+		/* checking to see if an element has changed */
+		/* ----------------------------------------- */		
+		
+		var $xpath = cbd:xpath-tail( $test-ns/@cbd:argv );
+		
+		var $boolexp = "boolean($pre_ns" _ $xpath _ " = $post_ns" _ $xpath _ ")";
+
+		/* [START_OF_CHANGE] code added to check if the ns + xpath returns null on both pre and post NSes */
+		var $pre_ns_xpath_as_boolean = "boolean($pre_ns" _ $xpath _ ")";
+		var $post_ns_xpath_as_boolean = "boolean($post_ns" _ $xpath _ ")";
+		/* [END_OF_CHANGE] */
+
+		var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];	
+		var $diffs := { for-each( $common_iddb ) { var $_id = .;
+			
+			/* ------------------------------------------------- */
+			/* use the "id" to retrieve the PRE and POST copies  */
+			/* of the element data/node-set                      */
+			/* ------------------------------------------------- */
+			
+			var $pre_ns = jppc:id-to-xml( $pre-ns, $_id );
+			var $post_ns = jppc:id-to-xml( $post-ns, $_id );
+			
+			/* ----------------------------------------------- */			
+			/* make a copy of the node-set that fails the test */
+			/* ----------------------------------------------- */
+			
+			/* [START_OF_CHANGE] change in the test to avoid failing when both PRE and POST NS+xpath return null */
+/*			if( dyn:evaluate($boolexp) == false() ) {			*/
+			/* [END_OF_CHANGE] */
+			if( (dyn:evaluate($boolexp) == false()) && (dyn:evaluate($pre_ns_xpath_as_boolean) == true()) && (dyn:evaluate($post_ns_xpath_as_boolean) == true())) {			
 				copy-of $_id;
 			}
 		}}
@@ -363,6 +444,76 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 /* ####################################################################### */
 /* ####################################################################### */
 /*                                                                         */
+/*                           		   is-gt-in                            */
+/*                                                                         */
+/* Note: the is-gt-in will silent ignore the comparison of a xpath         */
+/* expression that returns null for both PRE and POST node-sets.		   */
+/*                                                                         */
+/* Changed by Diogo Montagner <dmontagner@juniper.net> @2013-05-15		   */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-gt-in">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $tstopts = $test-ns/@cbd:argv;
+	var $xpath_tmp = cbd:xpath-tail( $test-ns/@cbd:argv );
+	var $xpath = jcs:split(",", $xpath_tmp);
+	
+	if( $test-ns/count ) {
+		if( count( $post-ns ) > $test-ns/count ) {
+			<func:result select="$JPPC-TEST-PASS">;
+		}
+		else { 
+			<func:result select="$JPPC-TEST-FAIL">; 
+		}
+	}
+	else {
+
+        var $pre_ns_xpath_as_boolean = "boolean($pre_ns" _ $xpath[1] _ ")";
+        var $post_ns_xpath_as_boolean = "boolean($post_ns" _ $xpath[1] _ ")";
+
+		var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];	
+		var $diffs := { for-each( $common_iddb ) { var $_id = .;
+			
+			/* ------------------------------------------------- */
+			/* use the "id" to retrieve the PRE and POST copies  */
+			/* of the element data/node-set                      */
+			/* ------------------------------------------------- */
+			
+			var $pre_ns = jppc:id-to-xml( $pre-ns, $_id );
+			var $post_ns = jppc:id-to-xml( $post-ns, $_id );
+			
+			/* ----------------------------------------------- */			
+			/* make a copy of the node-set that fails the test */
+			/* ----------------------------------------------- */
+			
+			var $args = jcs:split( ",", $tstopts );
+			var $dynexp = "$post_ns[boolean(" _ $args[1] _ " > " _ $args[2] _ ") = false()]";
+
+			if( (dyn:evaluate($dynexp) == true()) && (dyn:evaluate($pre_ns_xpath_as_boolean) == true()) && (dyn:evaluate($post_ns_xpath_as_boolean) == true())) {			
+				copy-of $_id;
+			}
+		}}
+
+/*
+		var $fails = dyn:evaluate( $dynexp );
+		<func:result select="$fails">;
+*/
+		<func:result select="$diffs/child::*">;
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
 /*                           		  is-lt                                   */
 /*                                                                         */
 /* ####################################################################### */
@@ -393,6 +544,75 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 		var $dynexp = "$post-ns[boolean(" _ $args[1] _ " < " _ $args[2] _ ") = false()]";
 		var $fails = dyn:evaluate( $dynexp );	
 		<func:result select="$fails">;
+	}
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           		  is-lt-in                             */
+/*                                                                         */
+/* Note: the is-lt-in will silent ignore the comparison of a xpath         */
+/* expression that returns null for both PRE and POST node-sets.		   */
+/*                                                                         */
+/* Changed by Diogo Montagner <dmontagner@juniper.net> @2013-05-16		   */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-lt-in">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $testops = $test-ns/@cbd:argv;
+	var $xpath_tmp = cbd:xpath-tail( $test-ns/@cbd:argv );
+	var $xpath = jcs:split(",", $xpath_tmp);
+	
+	if( $test-ns/count ) {
+		if( count( $post-ns ) < $test-ns/count ) {
+			<func:result select="$JPPC-TEST-PASS">;
+		}
+		else {
+			<func:result select="$JPPC-TEST-FAIL">;
+		}
+	}
+	else {
+        var $pre_ns_xpath_as_boolean = "boolean($pre_ns" _ $xpath[1] _ ")";
+        var $post_ns_xpath_as_boolean = "boolean($post_ns" _ $xpath[1] _ ")";
+
+		var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];	
+		var $diffs := { for-each( $common_iddb ) { var $_id = .;
+			
+			/* ------------------------------------------------- */
+			/* use the "id" to retrieve the PRE and POST copies  */
+			/* of the element data/node-set                      */
+			/* ------------------------------------------------- */
+			
+			var $pre_ns = jppc:id-to-xml( $pre-ns, $_id );
+			var $post_ns = jppc:id-to-xml( $post-ns, $_id );
+			
+			/* ----------------------------------------------- */			
+			/* make a copy of the node-set that fails the test */
+			/* ----------------------------------------------- */
+			
+			var $args = jcs:split( ",", $testops );
+			var $dynexp = "$post_ns[boolean(" _ $args[1] _ " < " _ $args[2] _ ") = false()]";
+
+			if( (dyn:evaluate($dynexp) == true()) && (dyn:evaluate($pre_ns_xpath_as_boolean) == true()) && (dyn:evaluate($post_ns_xpath_as_boolean) == true())) {			
+				copy-of $_id;
+			}
+		}}
+
+/*
+		var $fails = dyn:evaluate( $dynexp );	
+		<func:result select="$fails">;
+*/
+		<func:result select="$diffs/child::*">;
 	}
 }
 

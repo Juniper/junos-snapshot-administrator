@@ -45,7 +45,7 @@ if [ -z "$JUISE_EXE" ]; then
 fi
 
 JAWA_VER="1.0"
-JAWA_DATE="2012-SEP-10"
+JAWA_DATE="2013-JUN-13"
 
 JAWA_NAME=$(basename $0)
 

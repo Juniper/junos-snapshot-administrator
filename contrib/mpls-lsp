@@ -1,0 +1,19 @@
+mpls-lsp {
+        command show mpls lsp;
+        iterate //rsvp-session/mpls-lsp {
+        id name;
+                is-in lsp-state, "Up" {
+                        info MPLS LSP - State Change Check;
+                        err "MPLS LSP Peer name: %s is down", name;
+                }
+                list-not-less {
+                        info MPLS LSP - Missing LSP Check;
+                        err "MPLS LSP: %s is missing", name;
+                }
+                list-not-more {
+                        info MPLS LSP - Additional LSP Check;
+                        err "MPLS LSP added: %s", name;
+                }
+        }
+}
+

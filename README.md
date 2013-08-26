@@ -19,3 +19,8 @@ pre-install and post-install snapshot of the device and then compare the two
 snapshots. You can then review the operational changes on the device and
 validate these changes from a list of expected changes.
 
+
+Contributions
+-------------
+Interested in sharing criteria that you have written with the community? Add it to the contrib directory. 
+

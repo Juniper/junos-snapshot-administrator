@@ -1,0 +1,65 @@
+#Check for Ethernet interface errors during the period of the snapshot.
+#Tested on interfaces up to 10Gb. Modify "Command show interface" to include 40, 100Gb interfaces.
+
+interface-ethernet-physical-extended {
+        command show interface "[gxf]e-*" extensive;
+        iterate physical-interface {
+        id name;
+                no-diff ./input-error-list/input-errors {
+                        info Ethernet Interfaces - Input Errors Check;
+                        err "Interface: %s input-errors changed from: %s to: %s since last snapshot", name, $PRE/.
+/input-error-list/input-errors, $POST/./input-error-list/input-errors;
+                }
+                no-diff ./input-error-list/input-drops {
+                        info Ethernet Interfaces - Input Drops Check;
+                        err "Interface: %s input-drops changed from: %s to: %s since last snapshot", name, $PRE/./
+input-error-list/input-drops, $POST/./input-error-list/input-drops;
+                }
+                no-diff ./input-error-list/framing-errors {
+                        info Ethernet Interfaces - Input Framing Errors Check;
+                        err "Interface: %s framing-errors changed from: %s to: %s since last snapshot", name, $PRE
+/./input-error-list/framing-errors, $POST/./input-error-list/framing-errors;
+                }
+                no-diff ./input-error-list/input-runts {
+                        info Ethernet Interfaces - Input Runts Check;
+                        err "Interface: %s input-runts changed from: %s to: %s since last snapshot", name, $PRE/./
+input-error-list/input-runts, $POST/./input-error-list/input-runts;
+                }
+                no-diff ./input-error-list/input-fifo-errors {
+                        info Ethernet Interfaces - Input FIFO Errors Check;
+                err "Interface: %s input-fifo-errors changed from: %s to: %s since last snapshot", name, $PRE/./in
+put-error-list/input-fifo-errors, $POST/./input-error-list/input-fifo-errors;
+                }
+                no-diff ./output-error-list/output-collisions {
+                        info Ethernet Interfaces - Output Collisions Check;
+                        err "Interface: %s output-collisions changed from: %s to: %s since last snapshot", name, $
+PRE/./output-error-list/output-collisions, $POST/./output-error-list/output-collisions;
+                }
+                no-diff ./output-error-list/output-drops {
+                        info Ethernet Interfaces - Output Drops;
+                        err "Interface: %s output-drops changed from: %s to: %s since last snapshot", name, $PRE/.
+/output-error-list/output-drops, $POST/./output-error-list/output-drops;
+                }
+                no-diff ./output-error-list/aged-packets {
+                        info Ethernet Interfaces - Output Aged Packets Check;
+                        err "Interface: %s aged-packets changed from: %s to: %s since last snapshot", name, $PRE/.
+/output-error-list/aged-packets, $POST/./output-error-list/aged-packets;
+                }
+                no-diff ./output-error-list/mtu-errors {
+                        info Ethernet Interfaces - Output MTU Errors Check;
+                        err "Interface: %s mtu-errors changed from: %s to: %s since last snapshot", name, $PRE/./o
+utput-error-list/mtu-errors, $POST/./output-error-list/mtu-errors;
+                }
+                no-diff ./output-error-list/hs-link-crc-errors {
+                        info Ethernet Interfaces - Output hs-link-crc-errors Check;
+                        err "Interface: %s hs-link-crc-errors changed from: %s to: %s since last snapshot", name, 
+$PRE/./output-error-list/hs-link-crc-errors, $POST/./output-error-list/hs-link-crc-errors;
+                }
+                no-diff ./output-error-list/output-fifo-errors {
+                        info Ethernet Interfaces - Output FIFO Errors Check;
+                        err "Interface: %s output-fifo-errors changed from: %s to: %s since last snapshot", name, 
+$PRE/./output-error-list/output-fifo-errors, $POST/./output-error-list/output-fifo-errors;
+                }
+
+        }
+}

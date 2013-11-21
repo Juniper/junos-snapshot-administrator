@@ -122,8 +122,10 @@ match / {
 
 template do_snapshot( $ini-file, $target, $passwd, $section-cmd-ns )
 {
-   expr jcs:output("Connecting to ", $USER, "@", $target, " ... ");
-	var $jnx = jcs:open( $target, $USER, $passwd );
+    expr jcs:output("Connecting to ", $USER, "@", $target, " ... ");
+    
+	var $jnx = jppc:open-session( $target, $USER, $passwd );
+    
 	if(not( $jnx )) {
 	   expr jcs:output("Unable to connect to device: ", $target, " ... SKIPPING! ");
 	}

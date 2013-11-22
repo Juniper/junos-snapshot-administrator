@@ -222,3 +222,37 @@ var $__jppc_rxp_q = $__jppc_q_def _ "(.+)" _ $__jppc_q_def _ $__jppc_v_def;
       <func:result select="false()">;
    }
 }
+
+/* ------------------------------------------------- */
+/* this function is used try netconf as a protocol   */ 
+/* if the session didn't work the first time         */
+/* ------------------------------------------------- */
+<func:function name="jppc:open-session">
+{
+    param $target;
+    param $login;
+    param $pwd;
+   
+    var $session-opt-default := {
+                <username> $login;
+                <password> $pwd;
+                <port> "22";
+        }
+    
+    var $session-opt-netconf := {
+                <method> "netconf";
+                <username> $login;
+                <password> $pwd;
+                <port> "22";
+        }
+    
+	var $jnx-default = jcs:open( $target, $session-opt-default );
+    
+    if(not( $jnx-default )) {
+	   var $jnx-netconf = jcs:open( $target, $session-opt-netconf );
+       <func:result select="$jnx-netconf">;
+	}
+    else {
+        <func:result select="$jnx-default">;
+    }
+}

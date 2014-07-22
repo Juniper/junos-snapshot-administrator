@@ -80,6 +80,7 @@ var $JPPC-TEST-OPERATORS := {
 	<exists>;			            /* <xpath> */
 	<not-exists>;		            /* <xpath> */
 	<contains>;			            /* <xpath>,"<str-value>" */
+	<contains-rex>;			            /* <xpath>,"<regex-value>" */
 }
 
 var $JPPC-TEST-NAMES = dyn:map($JPPC-TEST-OPERATORS/child::*,'name(.)');
@@ -639,6 +640,37 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 	var $dynexp = {
 		expr "$post-ns[boolean(";
 		expr "   contains(" _ $args[1] _ "," _ $args[2] _ ")";
+		expr ") = false()]";
+	}
+	
+	var $fails = dyn:evaluate( $dynexp );
+	
+	<func:result select="$fails">;
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           contains-rex                                  */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_contains-rex">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+	
+	var $args = jcs:split( ",", $test-ns/@cbd:argv );
+	
+	var $dynexp = {
+		expr "$post-ns[boolean(";
+		expr "   jcs:regex(" _ $args[2] _ "," _ $args[1] _ ")";
 		expr ") = false()]";
 	}
 	

@@ -81,6 +81,8 @@ var $JPPC-TEST-OPERATORS := {
 	<not-exists>;		            /* <xpath> */
 	<contains>;			            /* <xpath>,"<str-value>" */
 	<contains-rex>;			            /* <xpath>,"<regex-value>" */
+	<traffic diff="">;				   /* <xpath>, [+|-]<value>[%] */
+
 }
 
 var $JPPC-TEST-NAMES = dyn:map($JPPC-TEST-OPERATORS/child::*,'name(.)');
@@ -1012,5 +1014,133 @@ template jppc:subEXEC_TEST_delta_fixed(
 	}
 }
 
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                              traffic                                    */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
 
+<func:function name="jppc:EXEC_TEST_traffic">
+{
+        param $cmd-ns;                          /* entire section block */
+        param $check-ns;                        /* this collection within section */
+        param $test-ns;                 /* this test within dataset */
+        param $pre-ns;                          /* precheck node-set for collection */
+        param $pre-iddb;                        /* precheck id database */
+        param $post-ns;                 /* postcheck node-set for collection */
+        param $post-iddb;                       /* postcheck id database */
+
+        var $args = jcs:split( ",", $test-ns/@cbd:argv );
+
+        var $delta-item = $args[1];
+        var $delta-value = $args[2];
+	var $control-traffic = $args[3];
+        var $fails := {
+                if(contains( $delta-value, "%" )) {
+                        call jppc:subEXEC_TEST_traffic_percent( 
+                                $pre-ns, $pre-iddb, 
+                                $post-ns, $post-iddb,
+                                $delta-item, $delta-value,
+				$control-traffic );
+                }
+                else {
+                        call jppc:subEXEC_TEST_traffic_fixed( 
+                                $pre-ns, $pre-iddb,
+                                $post-ns, $post-iddb,
+                                $delta-item, $delta-value,
+				$control-traffic );
+                }
+        }
+
+        <func:result select="$fails/child::*">;
+}
+
+template jppc:subEXEC_TEST_traffic_percent( 
+        $pre-ns, $pre-iddb,
+        $post-ns, $post-iddb,
+        $delta-item, $delta-value,
+	$control-traffic )
+{
+        var $dv_regx = jcs:regex("[+-]?([[:digit:]]+)%?", $delta-value);
+        var $p_delta_val = $dv_regx[2] div 100;
+        var $dyn_tstfail = {
+                if(contains( $delta-value, "+" )) {
+                        expr 'format-number($post_val,"#.#") > format-number($post_upval,"#.#")';
+                }
+                else if( contains( $delta-value, "-" )) {
+                        expr 'format-number($post_val,"#.#") < format-number($post_dnval,"#.#")';
+			
+                }
+                else {
+                        expr '(format-number($post_val,"#.#") < format-number($post_dnval,"#.#")) or (format-number($post_val,"#.#") > format-number($post_upval,"#.#"))';
+                }
+        }
+
+        var $abs_delta = math:abs($p_delta_val);
+
+        var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];
+        for-each( $common_iddb ) { 
+
+                var $_item_id = .;
+                var $pre_ns = jppc:id-to-xml( $pre-ns, $_item_id );
+                var $post_ns = jppc:id-to-xml( $post-ns, $_item_id );  
+
+                var $pre_val = dyn:evaluate( "$pre_ns/" _ $delta-item );
+                var $post_val = dyn:evaluate( "$post_ns/" _ $delta-item );
+                var $delta_val = $pre_val * $abs_delta;
+
+                var $post_upval = $pre_val + $delta_val;
+                var $post_dnval = $pre_val - $delta_val;
+                if( dyn:evaluate( $dyn_tstfail )) {
+			if((format-number($pre_val,"#.#")) > (format-number($control-traffic,"#.#"))) {
+                        	copy-of $_item_id;
+			}
+                }
+        }
+}
+
+template jppc:subEXEC_TEST_traffic_fixed( 
+        $pre-ns, $pre-iddb,
+        $post-ns, $post-iddb,
+        $delta-item, $delta-value,
+	$control-traffic )
+{
+
+        var $dv_regx = jcs:regex("[+-]?([[:digit:]]+)", $delta-value);
+        var $dv_value = $dv_regx[2];
+
+        var $dyn_tstfail = {
+                if(contains( $delta-value, "+" )) {
+                        expr 'format-number($post_val,"#.#") > format-number($post_upval,"#.#")';
+                }
+                else if( contains( $delta-value, "-" )) {
+                        expr 'format-number($post_val,"#.#") < format-number($post_dnval,"#.#")';
+
+                }
+                else {
+                        expr '(format-number($post_val,"#.#") < format-number($post_dnval,"#.#")) or (format-number($post_val,"#.#") > format-number($post_upval,"#.#"))';
+                }
+	}
+
+        var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];
+        for-each( $common_iddb ) { var $_item_id = .;
+
+                var $pre_ns = jppc:id-to-xml( $pre-ns, $_item_id );
+                var $post_ns = jppc:id-to-xml( $post-ns, $_item_id );  
+
+                var $pre_val = dyn:evaluate( "$pre_ns/" _ $delta-item );
+                var $post_val = dyn:evaluate( "$post_ns/" _ $delta-item );
+
+                var $post_upval = $pre_val + $dv_value;
+                var $post_dnval = $pre_val - $dv_value;
+
+                if( dyn:evaluate( $dyn_tstfail )) {
+			if((format-number($pre_val,"#.#")) > (format-number($control-traffic,"#.#"))) {	
+                        	copy-of $_item_id;
+			}
+                }
+        }
+}
 

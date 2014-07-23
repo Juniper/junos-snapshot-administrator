@@ -82,7 +82,6 @@ var $JPPC-TEST-OPERATORS := {
 	<contains>;			            /* <xpath>,"<str-value>" */
 	<contains-rex>;			            /* <xpath>,"<regex-value>" */
 	<traffic diff="">;				   /* <xpath>, [+|-]<value>[%] */
-
 }
 
 var $JPPC-TEST-NAMES = dyn:map($JPPC-TEST-OPERATORS/child::*,'name(.)');

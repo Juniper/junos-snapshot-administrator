@@ -73,7 +73,9 @@ var $JPPC-TEST-OPERATORS := {
 	<is-gt>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
 	<is-gt-in>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
 	<is-in>;				            /* <xpath>,"<str-item1>","<str-item2>",... */
+	<is-in-rex>;					    /* <xpath>,"<regex-item1>","<regex-item2>",... */
 	<not-in>;			            /* <xpath>,"<str-item1>","<str-item2>",... */
+	<not-in-rex>;				    /* <xpath>,"<regex-item1>","<regex-item2>",... */
 	<in-range>;			            /* <xpath>,<min-num>,<max-num> */
 	<not-range>;		            /* <xpath>,<min-num>,<max-num> */
 	<delta diff="">;				   /* <xpath>, [+|-]<value>[%] */
@@ -714,6 +716,39 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 /* ####################################################################### */
 /* ####################################################################### */
 /*                                                                         */
+/*                                       is-in-rex                         */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-in-rex">
+{
+        param $cmd-ns;                          /* entire section block */
+        param $check-ns;                        /* this collection within section */
+        param $test-ns;                         /* this test within dataset */
+        param $pre-ns;                          /* precheck node-set for collection */
+        param $pre-iddb;                        /* precheck id database */
+        param $post-ns;                         /* postcheck node-set for collection */
+        param $post-iddb;                       /* postcheck id database */
+        
+        var $args = jcs:split(',', $test-ns/@cbd:argv );
+        var $item = $args[1];
+        
+        var $inlist1 = { for-each( $args[position()>1] ) { var $_in_val = .;
+                expr " or ( jcs:regex(" _ $_in_val _ " , " _ $item _ "))";
+        }}
+        var $inlist = substring-after( $inlist1, " or " ); 
+        
+        var $dynexp = "$post-ns[boolean(" _ $inlist _ ") = false()]";
+        var $fails = dyn:evaluate( $dynexp );
+
+        <func:result select="$fails">;
+}
+
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
 /*                           		 not-in                                   */
 /*                                                                         */
 /* ####################################################################### */
@@ -742,6 +777,39 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 	
 	<func:result select="$fails">;	
 }
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                               not-in-rex                                */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_not-in-rex">
+{
+        param $cmd-ns;                          /* entire section block */
+        param $check-ns;                        /* this collection within section */
+        param $test-ns;                         /* this test within dataset */
+        param $pre-ns;                          /* precheck node-set for collection */
+        param $pre-iddb;                        /* precheck id database */
+        param $post-ns;                         /* postcheck node-set for collection */
+        param $post-iddb;                       /* postcheck id database */
+
+        var $args = jcs:split(',', $test-ns/@cbd:argv );
+        var $item = $args[1];
+        
+        var $inlist1 = { for-each( $args[position()>1] ) { var $_in_val = .;
+                expr " or ( jcs:regex(" _ $_in_val _ " , " _ $item _ "))";
+        }}
+        var $inlist = substring-after( $inlist1, " or " ); 
+        
+        var $dynexp = "$post-ns[boolean(" _ $inlist _ ")]";
+        var $fails = dyn:evaluate( $dynexp );   
+        
+        <func:result select="$fails">;  
+}
+
 
 /* ####################################################################### */
 /* ####################################################################### */

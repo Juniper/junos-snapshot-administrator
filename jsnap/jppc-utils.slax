@@ -83,8 +83,8 @@ var $__jppc_rxp_q = $__jppc_q_def _ "(.+)" _ $__jppc_q_def _ $__jppc_v_def;
 				if(starts-with( $_rfmt, '"' )) {	expr $__jppc_rxp_qq; }
 				else if(starts-with( $_rfmt, "'" )) { expr $__jppc_rxp_q; }
 				else {
-					expr jcs:output("ERROR: unrecognized 'err' format: ",
-						"[", $_rfmt, "] ... SKIPPING!");
+					expr jppc:emit("ERROR: unrecognized 'err' format: " _
+						"[" _ $_rfmt _ "] ... SKIPPING!");
 					expr false();
 				}	
 			}
@@ -255,4 +255,15 @@ var $__jppc_rxp_q = $__jppc_q_def _ "(.+)" _ $__jppc_q_def _ $__jppc_v_def;
     else {
         <func:result select="$jnx-default">;
     }
+}
+
+/* ------------------------------------------------- */
+/* this function is used emit all output, could be   */ 
+/* or XML                                            */
+/* ------------------------------------------------- */
+<func:function name="jppc:emit">
+{
+    param $output;
+
+    expr jcs:output($output);
 }

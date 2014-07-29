@@ -79,7 +79,7 @@ match / {
 	var $ini-file = cbd:read( $CONF-FILE );
 	if( $ini-file/cbd:error ) {
 	   for-each( $ini-file/cbd:error ) {
-	      expr jcs:output( "ERROR[", file, "]: ", message );
+	      expr jppc:emit( "ERROR[" _ file _ "]: " _ message );
 	   }
 		<xsl:message terminate="yes"> "Exiting.";
 	}
@@ -92,14 +92,14 @@ match / {
 	
 	if( $SECTION ) {
 		if(not( $section-cmd-ns )) {
-			expr jcs:output("ERROR: Could not find: '", $SECTION, "' in config file '", $CONF-FILE, "' !" );
+			expr jppc:emit("ERROR: Could not find: '" _ $SECTION _ "' in config file '" _ $CONF-FILE _ "' !" );
 			<xsl:message terminate="yes">;
 		}
 	}
 	
 	var $targets = jppc:targets();
 	if(not( $targets )) {
-	   expr jcs:output("ERROR: no TARGET or TARGET-FILE defined !");
+	   expr jppc:emit("ERROR: no TARGET or TARGET-FILE defined !");
 	   <xsl:message terminate="yes">;
 	}
 	
@@ -122,13 +122,13 @@ match / {
 
 template do_snapshot( $ini-file, $target, $passwd, $section-cmd-ns )
 {
-   expr jcs:output("Connecting to ", $USER, "@", $target, " ... ");
+   expr jppc:emit("Connecting to " _ $USER _ "@" _ $target _ " ... ");
 	var $jnx = jppc:open-session( $target, $USER, $passwd );
 	if(not( $jnx )) {
-	   expr jcs:output("Unable to connect to device: ", $target, " ... SKIPPING! ");
+	   expr jppc:emit("Unable to connect to device: " _ $target _ " ... SKIPPING! ");
 	}
 	else {
-	   expr jcs:output("CONNECTED.");
+	   expr jppc:emit("CONNECTED.");
 	   
 	   /* -------------------------------------------------------- */
 	   /* execute the section; collecting the data from the device */
@@ -142,7 +142,7 @@ template do_snapshot( $ini-file, $target, $passwd, $section-cmd-ns )
 	         var $child = name(.);
 	         var $cmd-ns = dyn:evaluate( "$ini-file/" _ $child );
 	         if(not( $cmd-ns )) {
-	            expr jcs:output("ERROR: [" _ $CONF-FILE _ "]: Could not find: ", $child, " ... SKIPPING!" );
+	            expr jppc:emit("ERROR: [" _ $CONF-FILE _ "]: Could not find: " _ $child _ " ... SKIPPING!" );
 	         }
 	         else {
 	            call do_junos_cmd( $jnx, $target, $cmd-ns );
@@ -163,16 +163,16 @@ template do_junos_cmd( $jnx, $target, $cmd-ns )
 	var $cmd-name = name( $cmd-ns );
 	var $filename = concat( $target, "__", $cmd-name,"__", $SNAP-NAME, ".xml" );
 	
-	expr jcs:output( "EXEC: '", $cmd-ns/command, "' ... ");
+	expr jppc:emit( "EXEC: '" _ $cmd-ns/command _ "' ... ");
 	
 	var $rpc-cmd = <command> $cmd-ns/command;
 	var $rpc-rsp = jcs:execute-xns( $jnx, $rpc-cmd );
 	
 	if( $rpc-rsp/xnm:error ) {
-		expr jcs:output("ERROR: [invalid Junos command]: '", $cmd-ns/command, "'" );
+		expr jppc:emit("ERROR: [invalid Junos command]: '" _ $cmd-ns/command _ "'" );
 	}
 	else {
-		expr jcs:output( "SAVE: '", $filename, "' ... ");
+		expr jppc:emit( "SAVE: '" _ $filename _ "' ... ");
 		<exsl:document href=$filename indent="yes"> {
 			<jppc:section name=$cmd-name mode=$SNAP-NAME conf=$CONF-FILE target=$target ts=$TIME-NOW> {
 				copy-of $rpc-rsp/*;   /**/

@@ -258,12 +258,49 @@ var $__jppc_rxp_q = $__jppc_q_def _ "(.+)" _ $__jppc_q_def _ $__jppc_v_def;
 }
 
 /* ------------------------------------------------- */
-/* this function is used emit all output, could be   */ 
-/* or XML                                            */
+/* these functions are used to emit all output       */ 
+/* text or XML                                       */
 /* ------------------------------------------------- */
 <func:function name="jppc:emit">
 {
-    param $output;
+        param $mode;
+        param $output;
 
-    expr jcs:output($output);
+        if ($mode == "text") {
+                expr jcs:output($output);
+        }
+}
+
+<func:function name="jppc:emitXmlText">
+{
+        param $mode;
+        param $output;
+        param $tag;
+
+        if ($mode == "xml" && $tag != "") {
+                expr jcs:output("<" _ $tag _ ">", $output, "</" _ $tag _ ">");
+        } else {
+                expr jcs:output($output);
+        }
+}
+
+
+<func:function name="jppc:emitStartTag">
+{
+        param $mode;
+        param $tag;
+
+        if ($mode == "xml" && $tag != "") {
+                expr jcs:output("<" _ $tag _ ">");
+        }
+}
+
+<func:function name="jppc:emitEndTag">
+{
+        param $mode;
+        param $tag;
+
+        if ($mode == "xml" && $tag != "") {
+                expr jcs:output("</" _ $tag _ ">");
+        } 
 }

@@ -59,7 +59,7 @@ JPPC_DIR=$JAWADIR/jsnap
 JPPC_SNAP=$JPPC_DIR/jppc-snap.slax
 JPPC_EXEC=$JPPC_DIR/jppc-exec.slax
 
-GETOPT_ARGS=`getopt -u -o l:t:s:p: -l check:,login:,snapcheck:,section:,snap:,target:,passwd:,version -qn $JAWA_NAME -- $@`
+GETOPT_ARGS=`getopt -u -o l:t:s:p: -l check:,login:,snapcheck:,section:,snap:,target:,passwd:,version,xml -qn $JAWA_NAME -- $@`
 
 function show_help()
 {
@@ -82,6 +82,7 @@ function show_help()
 	echo "       -t | --target <target> "
 	echo "       -s | --section <section-name>"	
 	echo "       --version"
+	echo "       --xml"
 	echo ""
 	exit 0
 }
@@ -187,6 +188,10 @@ do
 	   show_version;
 	   ;;
 
+	--xml)
+	   ARG_xml=1;
+	   ;;
+
 	--)
 		ARG_conffile=$2
 		break
@@ -290,7 +295,11 @@ function jppc_check()
 	argv="CONF-FILE $ARG_conffile $ARG_TARGETS SNAP-N1 $ARG_snapN1 SNAP-N2 $ARG_snapN2"
 	argv="$argv ENV_PWD $PWD"
 
-	argv="$argv MODE text"
+        if [ -z "$ARG_xml" ]; then  
+            argv="$argv MODE text"
+        else    
+            argv="$argv MODE xml"
+        fi
 	
 	if [ -n "$ARG_section" ]; then
 		argv="$argv SECTION $ARG_section"

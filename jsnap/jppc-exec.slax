@@ -244,7 +244,7 @@ template do_check_select( $cmd-ns, $check-ns, $pre-ns, $post-ns )
               if ($MODE == "text") {
                   expr jppc:emit($MODE, "SKIPPING: " _ $test_oper _ ": " _ $test_desc );
               } else {
-                  expr jppc:emit($MODE, $test_oper _ ": " _ $test_desc, "skipping" );
+                  expr jppc:emitXmlText($MODE, $test_oper _ ": " _ $test_desc, "skipping" );
               }
 	   }
 	   else { call do_cmd_test( $cmd-ns, $check-ns, $test-ns, 

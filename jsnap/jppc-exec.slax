@@ -63,6 +63,7 @@ param $SNAP-N1;            /* REQ: name of first snap */
 param $SNAP-N2;            /* REQ: name of second snap */
 param $SECTION;				/* OPT: check only this [section] */
 param $ENV_PWD;            /* REQ: $PWD */
+param $MODE;            /* REQ: MODE=text/xml */
 
 var $jfile:JUNOS = false();
 
@@ -70,70 +71,88 @@ var $jppc:SNAPCHECK = boolean( $SNAP-N1 == $SNAP-N2 );
 
 match / {
 	
-	/* -------------------------------------------------------- */
-	/* load/parse the config file, or exit now                  */
-	/* -------------------------------------------------------- */	
+    /* -------------------------------------------------------- */
+    /* load/parse the config file, or exit now                  */
+    /* -------------------------------------------------------- */	
 
-	var $conf-ns = cbd:read( $CONF-FILE );
-	if(not( $conf-ns )) {
-		<xsl:message terminate="yes"> {
-			expr "\n";
-			expr "Unable to load configuration file: " _ $CONF-FILE _ "\n";
-			expr "Exiting.\n";
-		}
-	}
-	
-	/* ----------------------------------------------------------------- */
-   /* if a section was provided, make sure it's valid before proceeding */
-	/* ----------------------------------------------------------------- */   
+    var $conf-ns = cbd:read( $CONF-FILE );
+    if(not( $conf-ns )) {
+        <xsl:message terminate="yes"> {
+            expr "\n";
+            expr "Unable to load configuration file: " _ $CONF-FILE _ "\n";
+            expr "Exiting.\n";
+        }
+    }
+    
+    /* ----------------------------------------------------------------- */
+    /* if a section was provided, make sure it's valid before proceeding */
+    /* ----------------------------------------------------------------- */   
 
-	var $section-cmd-ns = jppc:section( $conf-ns );   
-	
-	if( $SECTION ) {
-		if(not( $section-cmd-ns )) {
-			expr jcs:output("ERROR: Could not find: '", $SECTION, "' in config file '", $CONF-FILE, "' !" );
-			<xsl:message terminate="yes">;
-		}
-	}
-	
-	var $targets = jppc:targets();
-	if(not( $targets )) {
-	   expr jcs:output("ERROR: no TARGET or TARGET-FILE defined !");
-	   <xsl:message terminate="yes">;
-	}	
-	
-   for-each( $targets ) { var $target = string(.);
-      expr jcs:output( $LINE-OF-BANG );
-      expr jcs:output( ">>>" );      
-      expr jcs:output( ">>> TARGET: ", $target );
-      expr jcs:output( ">>>" );
-      expr jcs:output( $LINE-OF-BANG );
-      call do_check_target( $conf-ns, $target, $section-cmd-ns );
-   }	
+    expr jppc:emitStartTag($MODE, "targets");
+
+    var $section-cmd-ns = jppc:section( $conf-ns );   
+    
+    if( $SECTION ) {
+        if(not( $section-cmd-ns )) {
+            expr jppc:emitXmlText($MODE, "ERROR: Could not find: '" _ $SECTION _ "' in config file '" _ $CONF-FILE _ "' !", "error");
+            <xsl:message terminate="yes">;
+        }
+    }
+    
+    var $targets = jppc:targets();
+    if(not( $targets )) {
+        expr jppc:emitXmlText($MODE, "ERROR: no TARGET or TARGET-FILE defined !", "error");
+        <xsl:message terminate="yes">;
+    }	
+    
+    for-each( $targets ) { var $target = string(.);
+        expr jppc:emitStartTag($MODE, "target");
+        expr jppc:emit($MODE, $LINE-OF-BANG );
+        expr jppc:emit($MODE, ">>>" );
+        if ($MODE == "text") {
+            expr jppc:emit($MODE, ">>> TARGET: " _ $target);
+        } else {
+            expr jppc:emitXmlText($MODE, $target, "name");
+        }
+        expr jppc:emit($MODE, ">>>");
+        expr jppc:emit($MODE, $LINE-OF-BANG);
+        call do_check_target( $conf-ns, $target, $section-cmd-ns);
+        expr jppc:emitEndTag($MODE, "target");
+    }	
+
+    expr jppc:emitEndTag($MODE, "targets");
 }
 
-template do_check_target( $conf-ns, $target, $section-cmd-ns )
+template do_check_target($conf-ns, $target, $section-cmd-ns)
 {
-   if( $section-cmd-ns ) {
-      call do_check_cmd( $target, $cmd-ns = $section-cmd-ns );		
-	}
-	else {	
-		/* ------------------------------------------------- */
-		/* loop through each of the 'do' commands; i.e.      */
-		/* [sections], grabbing  a node-set for each of the  */
-		/* specific command sections                         */
-		/* ------------------------------------------------- */	
-		
-		for-each( $conf-ns/do/child::* ) {
-			var $cmd-ns = dyn:evaluate( "$conf-ns/" _ name(.));
-			if(not( $cmd-ns )) {
-				expr jcs:output("---> ERROR: section '", $SECTION, "' not found ... SKIPPING!");
-			}
-			else if( true() ) {
-				call do_check_cmd( $target, $cmd-ns );
-			}
-		}
-	}
+    expr jppc:emitStartTag($MODE, "sections");
+    if ($section-cmd-ns) {
+        call do_check_cmd($target, $cmd-ns = $section-cmd-ns);		
+    } else {	
+        /* ------------------------------------------------- */
+        /* loop through each of the 'do' commands; i.e.      */
+        /* [sections], grabbing  a node-set for each of the  */
+        /* specific command sections                         */
+        /* ------------------------------------------------- */	
+        
+        for-each( $conf-ns/do/child::* ) {
+            var $cmd-ns = dyn:evaluate( "$conf-ns/" _ name(.));
+            if(not( $cmd-ns )) {
+                expr jppc:emitStartTag($MODE, "section");
+                if ($MODE == "text") {
+                    expr jppc:emit($MODE, "---> ERROR: section '" _ $SECTION _ "' not found ... SKIPPING!");
+                } else {
+                    expr jppc:emitXmlText($MODE, $SECTION, "name");
+                    expr jppc:emitXmlText($MODE, "ERROR: section '" _ $SECTION _ "' not found ... SKIPPING!", "error");
+                }
+                expr jppc:emitStartTag($MODE, "section");
+            }
+            else if( true() ) {
+                call do_check_cmd( $target, $cmd-ns );
+            }
+        }
+    }
+    expr jppc:emitEndTag($MODE, "sections");
 }
 
 var $LINE-OF-DASH = str:padding(75,"-");
@@ -150,10 +169,15 @@ var $LINE-OF-BANG = str:padding(75,"!");
 
 template do_check_cmd( $target, $cmd-ns )
 {
+        expr jppc:emitStartTag($MODE, "section");
 	var $cmd-name = name( $cmd-ns );
-	expr jcs:output($LINE-OF-DASH);
-	expr jcs:output("CHECKING SECTION: ", $cmd-name );
-	expr jcs:output($LINE-OF-DASH);
+	expr jppc:emit($MODE, $LINE-OF-DASH);
+        if ($MODE == "text") {
+            expr jppc:emit($MODE, "CHECKING SECTION: " _ $cmd-name );
+        } else {
+            expr jppc:emitXmlText($MODE, $cmd-name, "name");
+        }
+        expr jppc:emit($MODE, $LINE-OF-DASH);
 	
 	/* ---------------------------------------------------- */
 	/* Load the PRE and POST XML data sets for this command */
@@ -181,10 +205,14 @@ template do_check_cmd( $target, $cmd-ns )
 	/* "data item(s)" to check, aka block = 'check-ns'.    */
 	/* --------------------------------------------------- */	
 	
+        expr jppc:emitStartTag($MODE, "tests");
 	for-each( $cmd-ns/item | $cmd-ns/iterate ) {
 		var $_check = .;
-		call do_check_select( $cmd-ns, $check-ns = $_check, $pre-ns, $post-ns );
+		call do_check_select( $cmd-ns, $check-ns = $_check, $pre-ns, $post-ns, $localname = local-name() );
 	}
+        expr jppc:emitEndTag($MODE, "tests");
+
+        expr jppc:emitEndTag($MODE, "section");
 }
 
 /* ####################################################################### */
@@ -195,7 +223,7 @@ template do_check_cmd( $target, $cmd-ns )
 /* ####################################################################### */
 /* ####################################################################### */
 
-template do_check_select( $cmd-ns, $check-ns, $pre-ns, $post-ns )
+template do_check_select( $cmd-ns, $check-ns, $pre-ns, $post-ns, $localname )
 {
 	var $select_value = $check-ns/@cbd:argv;
 	var $sel_xpath = cbd:xpath-tail( $select_value );
@@ -221,21 +249,37 @@ template do_check_select( $cmd-ns, $check-ns, $pre-ns, $post-ns )
 
 	var $run_tests = $check-ns/child::*[name(.) == $JPPC-TEST-NAMES];
 	   
-	for-each( $run_tests ) {var $test-ns = .;
+	for-each( $run_tests ) {
+            var $test-ns = .;
 	   
-	   var $test_oper = name( $test-ns );
-	   var $test_ele = $JPPC-TEST-OPERATORS/child::*[name(.) == $test_oper];
-	   if( $test_ele/@diff && $jppc:SNAPCHECK ) {
-	      var $test_desc = jcs:first-of( $test-ns/info, position() );
-	      expr jcs:output("SKIPPING: ", $test_oper, ": ", $test_desc );
-	   }
-	   else { call do_cmd_test( $cmd-ns, $check-ns, $test-ns, 
-						  		$pre-ns = $pre_dyn_ns,
-						  		$pre-iddb = $pre_id_db,
-						  		$post-ns = $post_dyn_ns, 
-						  		$post-iddb = $post_id_db );
-		}
-	}
+            expr jppc:emitStartTag($MODE, "test");
+	    var $test_oper = name( $test-ns );
+            if ($MODE == "xml") {
+                expr jppc:emitXmlText($MODE, $localname, "type");
+                expr jppc:emitXmlText($MODE, $test_oper, "operator");
+            }
+	    var $test_ele = $JPPC-TEST-OPERATORS/child::*[name(.) == $test_oper];
+	    if( $test_ele/@diff && $jppc:SNAPCHECK ) {
+	        var $test_desc = jcs:first-of( $test-ns/info, position() );
+                if ($MODE == "text") {
+                    expr jppc:emit($MODE, "SKIPPING: " _ $test_oper _ ": " _ $test_desc);
+                } else {
+                    expr jppc:emitXmlText($MODE, $test_desc, "description" );
+                    expr jppc:emitStartTag($MODE, "skipped");
+                    expr jppc:emitStartTag($MODE, "messages");
+                    expr jppc:emitXmlText($MODE, "SKIPPING: " _ $test_oper _ ": " _ $test_desc, "message");
+                    expr jppc:emitEndTag($MODE, "messages");
+                    expr jppc:emitEndTag($MODE, "skipped");
+                }
+	    } else {
+                call do_cmd_test( $cmd-ns, $check-ns, $test-ns, 
+                                  $pre-ns = $pre_dyn_ns,
+                                  $pre-iddb = $pre_id_db,
+                                  $post-ns = $post_dyn_ns, 
+                                  $post-iddb = $post_id_db );
+            }
+            expr jppc:emitEndTag($MODE, "test");
+        }
 }
 
 /* ####################################################################### */
@@ -252,6 +296,9 @@ template do_cmd_test( $cmd-ns, $check-ns, $test-ns,
 {
 	var $test-id = position();
 	var $test_desc = jcs:first-of( $test-ns/info, $test-id );
+        if ($MODE == "xml") {
+            expr jppc:emitXmlText($MODE, $test_desc, "description" );
+        }
 
 	var $test_fn = "jppc:EXEC_TEST_" _ name( $test-ns );
 	
@@ -275,28 +322,44 @@ template do_cmd_test( $cmd-ns, $check-ns, $test-ns,
 		 * test failed, and we need to display the 'err' report as 
 		 * defined in the INI file
 		 */
-			expr jcs:output("- TEST FAILED: ", $test_desc );
+			if ($MODE == "text") {
+                            expr jppc:emit($MODE, "- TEST FAILED: " _ $test_desc );
+                        }
 			if( $test-ns/err ) {
+                                expr jppc:emitStartTag($MODE, "failed" );
 				call do_cmd_err_msg( $cmd-ns, $check-ns, $test-ns,
-											$pre-ns, $pre-iddb, $post-ns, $post-iddb, 
-											$fails );
+                                                     $pre-ns, $pre-iddb, $post-ns, $post-iddb, 
+                                                     $fails );
+                                expr jppc:emitEndTag($MODE, "failed" );
 			}
 			else {
-				expr jcs:output("---> WARNING 'err' defined ... <---");
+                            if ($MODE == "text") {
+				expr jppc:emit("---> WARNING 'err' defined ... <---");
+                            } else {
+                                expr jppc:emitXmlText($MODE, "WARNING 'err' defined", "warning" );
+                            }
 			}
 		}
 		/*
 		 * report that the test passed 
 		 */
 		else {
-			expr jcs:output("+ TEST PASSED: ", $test_desc );
+                        if ($MODE == "text") {
+                            expr jppc:emit($MODE, "+ TEST PASSED: " _ $test_desc );
+                        } else {
+                            expr jppc:emitXmlText($MODE, "", "passed" );
+                        }
 		}
 	}
 	/*
 	 * else there is not a corresponding test function in jppc-tests.slax
 	 */
 	else {
-		expr jcs:output("ERROR: unrecognized test for ", $test_desc, " ... SKIPPING !");
+            if ($MODE == "text") {
+                expr jppc:emit($MODE, "ERROR: unrecognized test for " _ $test_desc _ " ... SKIPPING !");
+            } else {
+                expr jppc:emitXmlText($MODE, "unrecognized test for " _ $test_desc _ " ... SKIPPING !", "error");
+            }
 	}
 }
 
@@ -309,9 +372,10 @@ template do_cmd_test( $cmd-ns, $check-ns, $test-ns,
 /* ####################################################################### */
 
 template do_cmd_err_msg( $cmd-ns, $check-ns, $test-ns,
-			  					 $pre-ns, $pre-iddb, $post-ns, $post-iddb,
-			  					 $fails )
+                         $pre-ns, $pre-iddb, $post-ns, $post-iddb,
+                         $fails )
 {
+        expr jppc:emitStartTag($MODE, "messages");
 	var $dynpf = jppc:make-err-dynpfs( $cmd-ns, $check-ns, $test-ns );	
 	if( name( $fails ) == "jppc:id" ) {
 		
@@ -339,11 +403,11 @@ template do_cmd_err_msg( $cmd-ns, $check-ns, $test-ns,
 				
 				if( $_dynpf/pvars ) { for-each( $item-ns ) { 			
 					var $dynprintf = "jcs:printf($_dynpf/pfmt," _ $_dynpf/pvars _ ")";
-					var $dynv = jcs:output(dyn:evaluate($dynprintf));
+					expr jppc:emitXmlText($MODE, dyn:evaluate($dynprintf), "message");
 				}}
 				/* otherwise, simple printtf without parameters */
 				else {
-					var $dynv = jcs:output(dyn:evaluate("jcs:printf($_dynpf/pfmt)"));
+					expr jppc:emitXmlText($MODE, dyn:evaluate("jcs:printf($_dynpf/pfmt)"), "message");
 				}			
 			}
 		}
@@ -371,18 +435,14 @@ template do_cmd_err_msg( $cmd-ns, $check-ns, $test-ns,
 				
 				if( $_dynpf/pvars ) { for-each( $_fail_ns ) { 								
 					var $dynprintf = "jcs:printf($_dynpf/pfmt," _ $_dynpf/pvars _ ")";
-					var $dynv = jcs:output(dyn:evaluate($dynprintf));
+					expr jppc:emitXmlText($MODE, dyn:evaluate($dynprintf), "message");
 				}}
 				/* otherwise, simple printtf without parameters */
 				else {
-					var $dynv = jcs:output(dyn:evaluate("jcs:printf($_dynpf/pfmt)"));
+					expr jppc:emitXmlText($MODE, dyn:evaluate("jcs:printf($_dynpf/pfmt)"), "message");
 				}			
 			}
 		}
 	}
+        expr jppc:emitEndTag($MODE, "messages");
 }
-
-
-
-
-

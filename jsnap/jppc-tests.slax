@@ -72,18 +72,16 @@ var $JPPC-TEST-OPERATORS := {
 	<is-lt-in>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
 	<is-gt>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
 	<is-gt-in>;				            /* <xpath>,<num-value> */										/* .count = <num-value> */
+	<is-bandwidth-quotient-gt-percentage>; /* <num-value>,<num-value>,<value>% */
+	<is-bandwidth-quotient-lt-percentage>; /* <num-value>,<num-value>,<value>% */
 	<is-in>;				            /* <xpath>,"<str-item1>","<str-item2>",... */
-	<is-in-rex>;					    /* <xpath>,"<regex-item1>","<regex-item2>",... */
 	<not-in>;			            /* <xpath>,"<str-item1>","<str-item2>",... */
-	<not-in-rex>;				    /* <xpath>,"<regex-item1>","<regex-item2>",... */
 	<in-range>;			            /* <xpath>,<min-num>,<max-num> */
 	<not-range>;		            /* <xpath>,<min-num>,<max-num> */
 	<delta diff="">;				   /* <xpath>, [+|-]<value>[%] */
 	<exists>;			            /* <xpath> */
 	<not-exists>;		            /* <xpath> */
 	<contains>;			            /* <xpath>,"<str-value>" */
-	<contains-rex>;			            /* <xpath>,"<regex-value>" */
-	<traffic diff="">;				   /* <xpath>, [+|-]<value>[%] */
 }
 
 var $JPPC-TEST-NAMES = dyn:map($JPPC-TEST-OPERATORS/child::*,'name(.)');
@@ -412,7 +410,117 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 /* ####################################################################### */
 /* ####################################################################### */
 /*                                                                         */
-/*                           		   is-gt                                  */
+/*                   is-bandwidth-quotient-gt-percentage                   */
+/*                                                                         */
+/*                                                                         */
+/*      Added by Lamoni Finlayson <github.com/lamoni> @2015-01-29		   */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-bandwidth-quotient-gt-percentage">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+
+
+	var $args = jcs:split( ",", $test-ns/@cbd:argv );
+
+	var $dv_regx = jcs:regex("[+-]?([[:digit:]]+)%?", $args[3]);
+	var $p_val = $dv_regx[2] div 100;
+
+
+	mvar $numerator = dyn:evaluate("$post-ns/"_$args[1]);
+	mvar $denominator = dyn:evaluate("$post-ns/"_$args[2]);
+
+	var $numeratorFind = jcs:regex("(([[:digit:]]+|[[:digit:]]+\.?[[:digit:]]*))(Mbps|Gbps)", $numerator);
+	if (contains($args[1], "Gbps")) {
+		set $numerator = $numeratorFind[2] * 1000;
+	}
+	else {
+		set $numerator = $numeratorFind[2];
+	}
+
+
+	var $denominatorFind = jcs:regex("(([[:digit:]]+|[[:digit:]]+\.?[[:digit:]]*))(Mbps|Gbps)", $denominator);
+
+	if (contains($args[2], "Gbps")) {
+		set $denominator = $denominatorFind[2] * 1000;
+	}
+	else {
+		set $denominator = $denominatorFind[2];
+	}
+
+	var $dynexp = "$post-ns[boolean(" _ $numerator div $denominator _ " > " _ $p_val _ ") = false()]";
+	var $fails = dyn:evaluate( $dynexp );
+	<func:result select="$fails">;
+
+
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                   is-bandwidth-quotient-lt-percentage                   */
+/*                                                                         */
+/*      Added by Lamoni Finlayson <github.com/lamoni> @2015-01-29		   */
+/*                                                                         */
+/* ####################################################################### */
+/* ####################################################################### */
+
+<func:function name="jppc:EXEC_TEST_is-bandwidth-quotient-lt-percentage">
+{
+	param $cmd-ns;				/* entire section block */
+	param $check-ns;			/* this collection within section */
+	param $test-ns;			/* this test within dataset */
+	param $pre-ns;				/* precheck node-set for collection */
+	param $pre-iddb;			/* precheck id database */
+	param $post-ns;			/* postcheck node-set for collection */
+	param $post-iddb;			/* postcheck id database */
+
+
+	var $args = jcs:split( ",", $test-ns/@cbd:argv );
+
+	var $dv_regx = jcs:regex("[+-]?([[:digit:]]+)%?", $args[3]);
+	var $p_val = $dv_regx[2] div 100;
+
+
+	mvar $numerator = dyn:evaluate("$post-ns/"_$args[1]);
+	mvar $denominator = dyn:evaluate("$post-ns/"_$args[2]);
+
+	var $numeratorFind = jcs:regex("(([[:digit:]]+|[[:digit:]]+\.?[[:digit:]]*))(Mbps|Gbps)", $numerator);
+	if (contains($args[1], "Gbps")) {
+		set $numerator = $numeratorFind[2] * 1000;
+	}
+	else {
+		set $numerator = $numeratorFind[2];
+	}
+
+
+	var $denominatorFind = jcs:regex("(([[:digit:]]+|[[:digit:]]+\.?[[:digit:]]*))(Mbps|Gbps)", $denominator);
+
+	if (contains($args[2], "Gbps")) {
+		set $denominator = $denominatorFind[2] * 1000;
+	}
+	else {
+		set $denominator = $denominatorFind[2];
+	}
+
+	var $dynexp = "$post-ns[boolean(" _ $numerator div $denominator _ " < " _ $p_val _ ") = false()]";
+	var $fails = dyn:evaluate( $dynexp );
+	<func:result select="$fails">;
+
+}
+
+/* ####################################################################### */
+/* ####################################################################### */
+/*                                                                         */
+/*                           	   is-gt  	                               */
 /*                                                                         */
 /* ####################################################################### */
 /* ####################################################################### */
@@ -654,37 +762,6 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 /* ####################################################################### */
 /* ####################################################################### */
 /*                                                                         */
-/*                           contains-rex                                  */
-/*                                                                         */
-/* ####################################################################### */
-/* ####################################################################### */
-
-<func:function name="jppc:EXEC_TEST_contains-rex">
-{
-	param $cmd-ns;				/* entire section block */
-	param $check-ns;			/* this collection within section */
-	param $test-ns;			/* this test within dataset */
-	param $pre-ns;				/* precheck node-set for collection */
-	param $pre-iddb;			/* precheck id database */
-	param $post-ns;			/* postcheck node-set for collection */
-	param $post-iddb;			/* postcheck id database */
-	
-	var $args = jcs:split( ",", $test-ns/@cbd:argv );
-	
-	var $dynexp = {
-		expr "$post-ns[boolean(";
-		expr "   jcs:regex(" _ $args[2] _ "," _ $args[1] _ ")";
-		expr ") = false()]";
-	}
-	
-	var $fails = dyn:evaluate( $dynexp );
-	
-	<func:result select="$fails">;
-}
-
-/* ####################################################################### */
-/* ####################################################################### */
-/*                                                                         */
 /*                           		 is-in                                 	*/
 /*                                                                         */
 /* ####################################################################### */
@@ -717,39 +794,6 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 /* ####################################################################### */
 /* ####################################################################### */
 /*                                                                         */
-/*                                       is-in-rex                         */
-/*                                                                         */
-/* ####################################################################### */
-/* ####################################################################### */
-
-<func:function name="jppc:EXEC_TEST_is-in-rex">
-{
-        param $cmd-ns;                          /* entire section block */
-        param $check-ns;                        /* this collection within section */
-        param $test-ns;                         /* this test within dataset */
-        param $pre-ns;                          /* precheck node-set for collection */
-        param $pre-iddb;                        /* precheck id database */
-        param $post-ns;                         /* postcheck node-set for collection */
-        param $post-iddb;                       /* postcheck id database */
-        
-        var $args = jcs:split(',', $test-ns/@cbd:argv );
-        var $item = $args[1];
-        
-        var $inlist1 = { for-each( $args[position()>1] ) { var $_in_val = .;
-                expr " or ( jcs:regex(" _ $_in_val _ " , " _ $item _ "))";
-        }}
-        var $inlist = substring-after( $inlist1, " or " ); 
-        
-        var $dynexp = "$post-ns[boolean(" _ $inlist _ ") = false()]";
-        var $fails = dyn:evaluate( $dynexp );
-
-        <func:result select="$fails">;
-}
-
-
-/* ####################################################################### */
-/* ####################################################################### */
-/*                                                                         */
 /*                           		 not-in                                   */
 /*                                                                         */
 /* ####################################################################### */
@@ -778,39 +822,6 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 	
 	<func:result select="$fails">;	
 }
-
-/* ####################################################################### */
-/* ####################################################################### */
-/*                                                                         */
-/*                               not-in-rex                                */
-/*                                                                         */
-/* ####################################################################### */
-/* ####################################################################### */
-
-<func:function name="jppc:EXEC_TEST_not-in-rex">
-{
-        param $cmd-ns;                          /* entire section block */
-        param $check-ns;                        /* this collection within section */
-        param $test-ns;                         /* this test within dataset */
-        param $pre-ns;                          /* precheck node-set for collection */
-        param $pre-iddb;                        /* precheck id database */
-        param $post-ns;                         /* postcheck node-set for collection */
-        param $post-iddb;                       /* postcheck id database */
-
-        var $args = jcs:split(',', $test-ns/@cbd:argv );
-        var $item = $args[1];
-        
-        var $inlist1 = { for-each( $args[position()>1] ) { var $_in_val = .;
-                expr " or ( jcs:regex(" _ $_in_val _ " , " _ $item _ "))";
-        }}
-        var $inlist = substring-after( $inlist1, " or " ); 
-        
-        var $dynexp = "$post-ns[boolean(" _ $inlist _ ")]";
-        var $fails = dyn:evaluate( $dynexp );   
-        
-        <func:result select="$fails">;  
-}
-
 
 /* ####################################################################### */
 /* ####################################################################### */
@@ -942,10 +953,10 @@ var $JPPC-TEST-PASS = false();					/* a test function returning false() indicate
 	param $post-iddb;			/* postcheck id database */
 	
 	var $tstopts = $test-ns/@cbd:argv;
-	
-	var $item = { 
+
+	var $item = {
 	   if( string-length( $tstopts )) {
-	      expr $tstopts;	   
+	      expr $tstopts;
 	   }
 	   else { expr "."; }
 	}
@@ -1081,133 +1092,5 @@ template jppc:subEXEC_TEST_delta_fixed(
 	}
 }
 
-/* ####################################################################### */
-/* ####################################################################### */
-/*                                                                         */
-/*                              traffic                                    */
-/*                                                                         */
-/* ####################################################################### */
-/* ####################################################################### */
 
-<func:function name="jppc:EXEC_TEST_traffic">
-{
-        param $cmd-ns;                          /* entire section block */
-        param $check-ns;                        /* this collection within section */
-        param $test-ns;                 /* this test within dataset */
-        param $pre-ns;                          /* precheck node-set for collection */
-        param $pre-iddb;                        /* precheck id database */
-        param $post-ns;                 /* postcheck node-set for collection */
-        param $post-iddb;                       /* postcheck id database */
-
-        var $args = jcs:split( ",", $test-ns/@cbd:argv );
-
-        var $delta-item = $args[1];
-        var $delta-value = $args[2];
-	var $control-traffic = $args[3];
-        var $fails := {
-                if(contains( $delta-value, "%" )) {
-                        call jppc:subEXEC_TEST_traffic_percent( 
-                                $pre-ns, $pre-iddb, 
-                                $post-ns, $post-iddb,
-                                $delta-item, $delta-value,
-				$control-traffic );
-                }
-                else {
-                        call jppc:subEXEC_TEST_traffic_fixed( 
-                                $pre-ns, $pre-iddb,
-                                $post-ns, $post-iddb,
-                                $delta-item, $delta-value,
-				$control-traffic );
-                }
-        }
-
-        <func:result select="$fails/child::*">;
-}
-
-template jppc:subEXEC_TEST_traffic_percent( 
-        $pre-ns, $pre-iddb,
-        $post-ns, $post-iddb,
-        $delta-item, $delta-value,
-	$control-traffic )
-{
-        var $dv_regx = jcs:regex("[+-]?([[:digit:]]+)%?", $delta-value);
-        var $p_delta_val = $dv_regx[2] div 100;
-        var $dyn_tstfail = {
-                if(contains( $delta-value, "+" )) {
-                        expr 'format-number($post_val,"#.#") > format-number($post_upval,"#.#")';
-                }
-                else if( contains( $delta-value, "-" )) {
-                        expr 'format-number($post_val,"#.#") < format-number($post_dnval,"#.#")';
-			
-                }
-                else {
-                        expr '(format-number($post_val,"#.#") < format-number($post_dnval,"#.#")) or (format-number($post_val,"#.#") > format-number($post_upval,"#.#"))';
-                }
-        }
-
-        var $abs_delta = math:abs($p_delta_val);
-
-        var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];
-        for-each( $common_iddb ) { 
-
-                var $_item_id = .;
-                var $pre_ns = jppc:id-to-xml( $pre-ns, $_item_id );
-                var $post_ns = jppc:id-to-xml( $post-ns, $_item_id );  
-
-                var $pre_val = dyn:evaluate( "$pre_ns/" _ $delta-item );
-                var $post_val = dyn:evaluate( "$post_ns/" _ $delta-item );
-                var $delta_val = $pre_val * $abs_delta;
-
-                var $post_upval = $pre_val + $delta_val;
-                var $post_dnval = $pre_val - $delta_val;
-                if( dyn:evaluate( $dyn_tstfail )) {
-			if((format-number($pre_val,"#.#")) > (format-number($control-traffic,"#.#"))) {
-                        	copy-of $_item_id;
-			}
-                }
-        }
-}
-
-template jppc:subEXEC_TEST_traffic_fixed( 
-        $pre-ns, $pre-iddb,
-        $post-ns, $post-iddb,
-        $delta-item, $delta-value,
-	$control-traffic )
-{
-
-        var $dv_regx = jcs:regex("[+-]?([[:digit:]]+)", $delta-value);
-        var $dv_value = $dv_regx[2];
-
-        var $dyn_tstfail = {
-                if(contains( $delta-value, "+" )) {
-                        expr 'format-number($post_val,"#.#") > format-number($post_upval,"#.#")';
-                }
-                else if( contains( $delta-value, "-" )) {
-                        expr 'format-number($post_val,"#.#") < format-number($post_dnval,"#.#")';
-
-                }
-                else {
-                        expr '(format-number($post_val,"#.#") < format-number($post_dnval,"#.#")) or (format-number($post_val,"#.#") > format-number($post_upval,"#.#"))';
-                }
-	}
-
-        var $common_iddb = $pre-iddb[ as-string == $post-iddb/as-string ];
-        for-each( $common_iddb ) { var $_item_id = .;
-
-                var $pre_ns = jppc:id-to-xml( $pre-ns, $_item_id );
-                var $post_ns = jppc:id-to-xml( $post-ns, $_item_id );  
-
-                var $pre_val = dyn:evaluate( "$pre_ns/" _ $delta-item );
-                var $post_val = dyn:evaluate( "$post_ns/" _ $delta-item );
-
-                var $post_upval = $pre_val + $dv_value;
-                var $post_dnval = $pre_val - $dv_value;
-
-                if( dyn:evaluate( $dyn_tstfail )) {
-			if((format-number($pre_val,"#.#")) > (format-number($control-traffic,"#.#"))) {	
-                        	copy-of $_item_id;
-			}
-                }
-        }
-}
 

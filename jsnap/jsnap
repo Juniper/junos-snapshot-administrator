@@ -119,7 +119,7 @@ do
 	case $1 in
 
 	--nostricthostkeycheck)
-		JUISE="$JUISE_EXE -S -oStrictHostKeyChecking=no $JDB"
+		JUISE="$JUISE_EXE -S -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no $JDB"
 		;;
 
 	-l|--login)

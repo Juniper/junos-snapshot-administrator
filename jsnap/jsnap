@@ -59,7 +59,7 @@ JPPC_DIR=$JAWADIR/jsnap
 JPPC_SNAP=$JPPC_DIR/jppc-snap.slax
 JPPC_EXEC=$JPPC_DIR/jppc-exec.slax
 
-GETOPT_ARGS=`getopt -u -o l:t:s:p: -l check:,login:,snapcheck:,section:,snap:,target:,passwd:,version,xml -qn $JAWA_NAME -- $@`
+GETOPT_ARGS=`getopt -u -o l:t:s:p: -l check:,login:,snapcheck:,section:,snap:,target:,passwd:,nostricthostkeycheck,version,xml -qn $JAWA_NAME -- $@`
 
 function show_help()
 {
@@ -80,7 +80,8 @@ function show_help()
 	echo "       -l | --login <login> "
 	echo "       -p | --passwd <passwd> "
 	echo "       -t | --target <target> "
-	echo "       -s | --section <section-name>"	
+	echo "       -s | --section <section-name>"
+	echo "       --nostricthostkeycheck"
 	echo "       --version"
 	echo "       --xml"
 	echo ""
@@ -116,6 +117,10 @@ set -- $GETOPT_ARGS
 while [ $# -gt 0 ]
 do	
 	case $1 in
+
+	--nostricthostkeycheck)
+		JUISE="$JUISE_EXE -S -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no $JDB"
+		;;
 
 	-l|--login)
 		ARG_login=$2
